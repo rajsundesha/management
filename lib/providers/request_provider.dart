@@ -14,4 +14,14 @@ class RequestProvider with ChangeNotifier {
     _requests[index]['status'] = status;
     notifyListeners();
   }
+
+  void cancelRequest(int index) {
+    _requests.removeAt(index);
+    notifyListeners();
+  }
+
+  void updateRequest(int index, List<String> items) {
+    _requests[index]['items'] = items;
+    notifyListeners();
+  }
 }
