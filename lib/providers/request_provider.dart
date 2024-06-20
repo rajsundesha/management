@@ -5,7 +5,7 @@ class RequestProvider with ChangeNotifier {
 
   List<Map<String, dynamic>> get requests => _requests;
 
-  void addRequest(List<String> items) {
+  void addRequest(List<Map<String, dynamic>> items) {
     _requests.add({'items': items, 'status': 'pending'});
     notifyListeners();
   }
@@ -20,7 +20,7 @@ class RequestProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void updateRequest(int index, List<String> items) {
+  void updateRequest(int index, List<Map<String, dynamic>> items) {
     _requests[index]['items'] = items;
     notifyListeners();
   }

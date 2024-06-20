@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/inventory_provider.dart';
 import '../providers/request_provider.dart';
+import 'edit_request_bottom_sheet.dart';
 
 class UserDashboard extends StatefulWidget {
   @override
@@ -10,51 +11,58 @@ class UserDashboard extends StatefulWidget {
 }
 
 class _UserDashboardState extends State<UserDashboard> {
-  List<String> _selectedItems = [];
+  Map<String, int> _selectedItems = {};
   String _searchQuery = '';
 
   void _showRequestOptions(
-      BuildContext context, int index, List<String> items) {
+      BuildContext context, int index, List<Map<String, dynamic>> items) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
         return Container(
           padding: EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Request Details',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 16),
-              ...items.map((item) => ListTile(title: Text(item))).toList(),
-              SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _editRequest(context, index, items);
-                },
-                child: Text('Edit Request'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _deleteRequest(context, index);
-                },
-                child: Text('Delete Request'),
-              ),
-            ],
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Request Details',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 16),
+                ...items
+                    .map((item) => ListTile(
+                          title: Text('${item['name']} x${item['quantity']}'),
+                        ))
+                    .toList(),
+                SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _editRequest(context, index, items);
+                  },
+                  child: Text('Edit Request'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _deleteRequest(context, index);
+                  },
+                  child: Text('Delete Request'),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  void _editRequest(BuildContext context, int index, List<String> items) {
-    showDialog(
+  void _editRequest(
+      BuildContext context, int index, List<Map<String, dynamic>> items) {
+    showModalBottomSheet(
       context: context,
-      builder: (context) => EditRequestDialog(index: index, items: items),
+      builder: (context) => EditRequestBottomSheet(index: index, items: items),
     );
   }
 
@@ -114,22 +122,47 @@ class _UserDashboardState extends State<UserDashboard> {
                   return ListView.builder(
                     itemCount: filteredItems.length,
                     itemBuilder: (context, index) {
+                      String item = filteredItems[index];
                       return Card(
                         child: ListTile(
-                          title: Text(filteredItems[index]),
-                          trailing: Checkbox(
-                            value:
-                                _selectedItems.contains(filteredItems[index]),
-                            onChanged: (bool? value) {
-                              setState(() {
-                                if (value == true) {
-                                  _selectedItems.add(filteredItems[index]);
-                                } else {
-                                  _selectedItems.remove(filteredItems[index]);
-                                }
-                              });
-                            },
-                          ),
+                          title: Text(item),
+                          trailing: _selectedItems.containsKey(item)
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(Icons.remove),
+                                      onPressed: () {
+                                        setState(() {
+                                          if (_selectedItems[item] == 1) {
+                                            _selectedItems.remove(item);
+                                          } else {
+                                            _selectedItems[item] =
+                                                _selectedItems[item]! - 1;
+                                          }
+                                        });
+                                      },
+                                    ),
+                                    Text('${_selectedItems[item]}'),
+                                    IconButton(
+                                      icon: Icon(Icons.add),
+                                      onPressed: () {
+                                        setState(() {
+                                          _selectedItems[item] =
+                                              _selectedItems[item]! + 1;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                )
+                              : IconButton(
+                                  icon: Icon(Icons.add),
+                                  onPressed: () {
+                                    setState(() {
+                                      _selectedItems[item] = 1;
+                                    });
+                                  },
+                                ),
                         ),
                       );
                     },
@@ -147,16 +180,65 @@ class _UserDashboardState extends State<UserDashboard> {
               child: ListView.builder(
                 itemCount: _selectedItems.length,
                 itemBuilder: (context, index) {
+                  String item = _selectedItems.keys.elementAt(index);
+                  int quantity = _selectedItems[item]!;
                   return Card(
                     child: ListTile(
-                      title: Text(_selectedItems[index]),
-                      trailing: IconButton(
-                        icon: Icon(Icons.remove_circle, color: Colors.red),
-                        onPressed: () {
-                          setState(() {
-                            _selectedItems.removeAt(index);
-                          });
-                        },
+                      title: Text('$item x$quantity'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.remove),
+                            onPressed: () {
+                              setState(() {
+                                if (_selectedItems[item] == 1) {
+                                  _selectedItems.remove(item);
+                                } else {
+                                  _selectedItems[item] =
+                                      _selectedItems[item]! - 1;
+                                }
+                              });
+                            },
+                          ),
+                          Container(
+                            width: 40,
+                            child: TextField(
+                              keyboardType: TextInputType.number,
+                              onChanged: (value) {
+                                setState(() {
+                                  _selectedItems[item] =
+                                      int.tryParse(value) ?? 1;
+                                });
+                              },
+                              decoration: InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(
+                                    vertical: 8, horizontal: 8),
+                                isDense: true,
+                                border: OutlineInputBorder(),
+                              ),
+                              controller: TextEditingController()
+                                ..text = quantity.toString(),
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.add),
+                            onPressed: () {
+                              setState(() {
+                                _selectedItems[item] =
+                                    _selectedItems[item]! + 1;
+                              });
+                            },
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.remove_circle, color: Colors.red),
+                            onPressed: () {
+                              setState(() {
+                                _selectedItems.remove(item);
+                              });
+                            },
+                          ),
+                        ],
                       ),
                     ),
                   );
@@ -169,12 +251,19 @@ class _UserDashboardState extends State<UserDashboard> {
                 onPressed: _selectedItems.isEmpty
                     ? null
                     : () {
+                        List<Map<String, dynamic>> requestItems =
+                            _selectedItems.entries
+                                .map((entry) => {
+                                      'name': entry.key,
+                                      'quantity': entry.value,
+                                    })
+                                .toList();
                         Provider.of<RequestProvider>(context, listen: false)
-                            .addRequest(List.from(_selectedItems));
+                            .addRequest(requestItems);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                                'Request added for ${_selectedItems.join(', ')}'),
+                                'Request added for ${_selectedItems.entries.map((e) => '${e.value} x ${e.key}').join(', ')}'),
                           ),
                         );
                         setState(() {
@@ -183,9 +272,8 @@ class _UserDashboardState extends State<UserDashboard> {
                       },
                 child: Text('Send Request'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _selectedItems.isEmpty
-                      ? Colors.grey
-                      : Theme.of(context).primaryColor,
+                  backgroundColor:
+                      _selectedItems.isEmpty ? Colors.grey : Colors.blue,
                   padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
                 ),
               ),
@@ -207,7 +295,7 @@ class _UserDashboardState extends State<UserDashboard> {
                       return Card(
                         child: ListTile(
                           title: Text(
-                            'Items: ${requestProvider.requests[index]['items'].join(', ')}',
+                            'Items: ${requestProvider.requests[index]['items'].map((item) => '${item['quantity']} x ${item['name']}').join(', ')}',
                           ),
                           subtitle: Text(
                             'Status: ${requestProvider.requests[index]['status']}',
@@ -231,7 +319,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           onTap: () => _showRequestOptions(
                               context,
                               index,
-                              List.from(
+                              List<Map<String, dynamic>>.from(
                                   requestProvider.requests[index]['items'])),
                         ),
                       );
@@ -249,114 +337,6 @@ class _UserDashboardState extends State<UserDashboard> {
         },
         child: Icon(Icons.refresh),
       ),
-    );
-  }
-}
-
-class EditRequestDialog extends StatefulWidget {
-  final int index;
-  final List<String> items;
-
-  EditRequestDialog({required this.index, required this.items});
-
-  @override
-  _EditRequestDialogState createState() => _EditRequestDialogState();
-}
-
-class _EditRequestDialogState extends State<EditRequestDialog> {
-  List<String> _items = [];
-  TextEditingController _controller = TextEditingController();
-  String _searchQuery = '';
-
-  @override
-  void initState() {
-    super.initState();
-    _items = List.from(widget.items);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final inventoryItems = Provider.of<InventoryProvider>(context).items;
-
-    List<String> filteredItems = inventoryItems
-        .where(
-            (item) => item.toLowerCase().contains(_searchQuery.toLowerCase()))
-        .toList();
-
-    return AlertDialog(
-      title: Text('Edit Request'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              constraints: BoxConstraints(
-                maxHeight: 200, // Fixed height for the ListView
-              ),
-              child: ListView(
-                shrinkWrap: true,
-                physics: NeverScrollableScrollPhysics(),
-                children: _items
-                    .map((item) => ListTile(
-                          title: Text(item),
-                          trailing: IconButton(
-                            icon: Icon(Icons.delete),
-                            onPressed: () {
-                              setState(() {
-                                _items.remove(item);
-                              });
-                            },
-                          ),
-                        ))
-                    .toList(),
-              ),
-            ),
-            TextField(
-              controller: _controller,
-              decoration: InputDecoration(
-                labelText: 'Add Item',
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                });
-              },
-            ),
-            if (filteredItems.isNotEmpty)
-              Container(
-                constraints: BoxConstraints(
-                  maxHeight:
-                      150, // Fixed height for the filtered items ListView
-                ),
-                child: ListView.builder(
-                  itemCount: filteredItems.length,
-                  itemBuilder: (context, index) {
-                    return ListTile(
-                      title: Text(filteredItems[index]),
-                      onTap: () {
-                        setState(() {
-                          _items.add(filteredItems[index]);
-                          _controller.clear();
-                          _searchQuery = '';
-                        });
-                      },
-                    );
-                  },
-                ),
-              ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () {
-            Provider.of<RequestProvider>(context, listen: false)
-                .updateRequest(widget.index, _items);
-            Navigator.of(context).pop();
-          },
-          child: Text('Close'),
-        ),
-      ],
     );
   }
 }
