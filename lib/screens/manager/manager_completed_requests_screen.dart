@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../providers/request_provider.dart';
+import '../../providers/request_provider.dart';
 
-class CompletedRequestsScreen extends StatelessWidget {
+class ManagerCompletedRequestsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -11,19 +11,24 @@ class CompletedRequestsScreen extends StatelessWidget {
       ),
       body: Consumer<RequestProvider>(
         builder: (context, requestProvider, child) {
+          final completedRequests = requestProvider.requests
+              .where((request) => request['status'] == 'fulfilled')
+              .toList();
           return ListView.builder(
-            itemCount: requestProvider.requests.length,
+            itemCount: completedRequests.length,
             itemBuilder: (context, index) {
-              if (requestProvider.requests[index]['status'] != 'approved') {
-                return Container();
-              }
+              final request = completedRequests[index];
               return Card(
                 child: ListTile(
                   title: Text(
-                    'Items: ${requestProvider.requests[index]['items'].map((item) => '${item['quantity']} x ${item['name']}').join(', ')}',
+                    'Items: ${request['items'].map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
                   ),
                   subtitle: Text(
-                    'Status: ${requestProvider.requests[index]['status']}',
+                    'Location: ${request['location']}\n'
+                    'Picker: ${request['pickerName']}\n'
+                    'Contact: ${request['pickerContact']}\n'
+                    'Status: ${request['status']}\n'
+                    'Unique Code: ${request['uniqueCode']}',
                   ),
                   leading: Icon(
                     Icons.check_circle,
