@@ -13,10 +13,7 @@ import 'screens/admin/reports_screen.dart';
 import 'screens/admin/settings_screen.dart';
 import 'screens/admin/user_management_screen.dart';
 import 'screens/common/login_screen.dart';
-<<<<<<< HEAD
-=======
 import 'screens/common/signup_screen.dart';
->>>>>>> 797d6eb (recent updates)
 import 'screens/manager/manager_create_request_screen.dart';
 import 'screens/user/user_dashboard.dart';
 import 'screens/manager/manager_dashboard.dart';
@@ -55,11 +52,11 @@ class MyApp extends StatelessWidget {
             routes: {
               '/': (context) =>
                   auth.user == null ? LoginScreen() : HomeScreen(),
-<<<<<<< HEAD
-=======
-                        '/signup': (context) =>
+// <<<<<<< HEAD
+// =======
+              '/signup': (context) =>
                   SignUpScreen(), // Add the SignUpScreen route
->>>>>>> 797d6eb (recent updates)
+// >>>>>>> 797d6eb (recent updates)
               '/user_dashboard': (context) => UserDashboard(),
               '/admin_dashboard': (context) => AdminDashboardScreen(),
               '/manager_dashboard': (context) => ManagerDashboard(),
