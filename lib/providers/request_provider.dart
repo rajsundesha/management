@@ -17,6 +17,8 @@ class RequestProvider with ChangeNotifier {
     _requests = querySnapshot.docs.map((doc) {
       final data = doc.data() as Map<String, dynamic>;
       data['id'] = doc.id; // Include document ID in the request data
+      data['timestamp'] = (data['timestamp'] as Timestamp)
+          .toDate(); // Convert Timestamp to DateTime
       return data;
     }).toList();
     notifyListeners();
@@ -28,17 +30,18 @@ class RequestProvider with ChangeNotifier {
   }
 
   Future<void> addRequest(
-      List<Map<String, dynamic>> items,
-      String location,
-      String pickerName,
-      String pickerContact,
-      String note,
-      String createdBy) async {
+    List<Map<String, dynamic>> items,
+    String location,
+    String pickerName,
+    String pickerContact,
+    String note,
+    String createdBy,
+  ) async {
     String uniqueCode = generateUniqueCode();
     final request = {
       'items': items,
       'status': 'pending',
-      'timestamp': DateTime.now(),
+      'timestamp': Timestamp.now(), // Use Timestamp instead of DateTime
       'location': location,
       'pickerName': pickerName,
       'pickerContact': pickerContact,
@@ -49,6 +52,8 @@ class RequestProvider with ChangeNotifier {
     };
     final docRef = await _firestore.collection('requests').add(request);
     request['id'] = docRef.id; // Add document ID to the request
+    request['timestamp'] =
+        DateTime.now(); // Ensure timestamp is DateTime for local list
     _requests.add(request);
     notifyListeners();
   }
@@ -78,13 +83,14 @@ class RequestProvider with ChangeNotifier {
   }
 
   Future<void> updateRequest(
-      String id,
-      List<Map<String, dynamic>> items,
-      String location,
-      String pickerName,
-      String pickerContact,
-      String note,
-      String userEmail) async {
+    String id,
+    List<Map<String, dynamic>> items,
+    String location,
+    String pickerName,
+    String pickerContact,
+    String note,
+    String userEmail,
+  ) async {
     final index = _requests.indexWhere((request) => request['id'] == id);
     if (index != -1 &&
         (_requests[index]['createdBy'] == userEmail || userEmail == 'admin')) {
@@ -146,7 +152,7 @@ class RequestProvider with ChangeNotifier {
     return _requests
         .where((request) =>
             request['status'] != 'pending' &&
-            DateTime.now().difference(request['timestamp'].toDate()).inDays < 1)
+            DateTime.now().difference(request['timestamp']).inDays < 1)
         .toList();
   }
 
@@ -168,6 +174,26 @@ class RequestProvider with ChangeNotifier {
     }
   }
 
+  // List<Map<String, dynamic>> getRequestsByRole(
+  //   String userRole,
+  //   String userEmail,
+  // ) {
+  //   if (userRole == 'admin') {
+  //     return _requests;
+  //   } else if (userRole == 'manager') {
+  //     return _requests
+  //         .where((request) =>
+  //             request['createdBy'] == userEmail || request['role'] == 'user')
+  //         .toList();
+  //   } else if (userRole == 'user') {
+  //     return _requests
+  //         .where((request) => request['createdBy'] == userEmail)
+  //         .toList();
+  //   } else {
+  //     return [];
+  //   }
+  // }
+
   Map<String, dynamic>? getRequestById(String id) {
     return _requests.firstWhere(
       (request) => request['id'] == id,
@@ -175,6 +201,371 @@ class RequestProvider with ChangeNotifier {
     );
   }
 }
+
+// import 'dart:math';
+// import 'package:flutter/material.dart';
+// import 'package:cloud_firestore/cloud_firestore.dart';
+
+// class RequestProvider with ChangeNotifier {
+//   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+//   List<Map<String, dynamic>> _requests = [];
+
+//   List<Map<String, dynamic>> get requests => _requests;
+
+//   RequestProvider() {
+//     fetchRequests();
+//   }
+
+//   void fetchRequests() async {
+//     final querySnapshot = await _firestore.collection('requests').get();
+//     _requests = querySnapshot.docs.map((doc) {
+//       final data = doc.data() as Map<String, dynamic>;
+//       data['id'] = doc.id; // Include document ID in the request data
+//       data['timestamp'] = (data['timestamp'] as Timestamp)
+//           .toDate(); // Convert Timestamp to DateTime
+//       return data;
+//     }).toList();
+//     notifyListeners();
+//   }
+
+//   String generateUniqueCode() {
+//     final random = Random();
+//     return (100000 + random.nextInt(900000)).toString();
+//   }
+
+//   Future<void> addRequest(
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) async {
+//     String uniqueCode = generateUniqueCode();
+//     final request = {
+//       'items': items,
+//       'status': 'pending',
+//       'timestamp': Timestamp.now(), // Use Timestamp instead of DateTime
+//       'location': location,
+//       'pickerName': pickerName,
+//       'pickerContact': pickerContact,
+//       'note': note,
+//       'uniqueCode': uniqueCode,
+//       'codeValid': false,
+//       'createdBy': createdBy,
+//     };
+//     final docRef = await _firestore.collection('requests').add(request);
+//     request['id'] = docRef.id; // Add document ID to the request
+//     request['timestamp'] =
+//         DateTime.now(); // Ensure timestamp is DateTime for local list
+//     _requests.add(request);
+//     notifyListeners();
+//   }
+
+//   Future<void> updateRequestStatus(String id, String status) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1) {
+//       _requests[index]['status'] = status;
+//       if (status == 'approved') {
+//         setCodeValid(index, true);
+//       }
+//       await _firestore
+//           .collection('requests')
+//           .doc(id)
+//           .update({'status': status});
+//       notifyListeners();
+//     }
+//   }
+
+//   Future<void> cancelRequest(String id) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1) {
+//       _requests.removeAt(index);
+//       await _firestore.collection('requests').doc(id).delete();
+//       notifyListeners();
+//     }
+//   }
+
+//   Future<void> updateRequest(
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String userEmail,
+//   ) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1 &&
+//         (_requests[index]['createdBy'] == userEmail || userEmail == 'admin')) {
+//       _requests[index]['items'] = items;
+//       _requests[index]['location'] = location;
+//       _requests[index]['pickerName'] = pickerName;
+//       _requests[index]['pickerContact'] = pickerContact;
+//       _requests[index]['note'] = note;
+//       await _firestore.collection('requests').doc(id).update({
+//         'items': items,
+//         'location': location,
+//         'pickerName': pickerName,
+//         'pickerContact': pickerContact,
+//         'note': note,
+//       });
+//       notifyListeners();
+//     }
+//   }
+
+//   void setCodeValid(int index, bool isValid) {
+//     _requests[index]['codeValid'] = isValid;
+//     _firestore
+//         .collection('requests')
+//         .doc(_requests[index]['id'])
+//         .update({'codeValid': isValid});
+//     notifyListeners();
+//   }
+
+//   bool verifyCode(String code) {
+//     try {
+//       final request = _requests.firstWhere(
+//           (req) => req['uniqueCode'] == code && req['codeValid'] == true);
+//       return request != null;
+//     } catch (e) {
+//       return false;
+//     }
+//   }
+
+//   Future<void> fulfillRequestByCode(String code) async {
+//     final index = _requests.indexWhere(
+//         (req) => req['uniqueCode'] == code && req['codeValid'] == true);
+//     if (index != -1) {
+//       _requests[index]['status'] = 'fulfilled';
+//       await _firestore
+//           .collection('requests')
+//           .doc(_requests[index]['id'])
+//           .update({'status': 'fulfilled'});
+//       notifyListeners();
+//     }
+//   }
+
+//   List<Map<String, dynamic>> getPendingRequests() {
+//     return _requests
+//         .where((request) => request['status'] == 'pending')
+//         .toList();
+//   }
+
+//   List<Map<String, dynamic>> getCompletedRequests() {
+//     return _requests
+//         .where((request) =>
+//             request['status'] != 'pending' &&
+//             DateTime.now().difference(request['timestamp']).inDays < 1)
+//         .toList();
+//   }
+
+//   List<Map<String, dynamic>> getRequestsByRole(
+//     String userRole,
+//     String userEmail,
+//   ) {
+//     if (userRole == 'admin') {
+//       return _requests;
+//     } else if (userRole == 'manager') {
+//       return _requests
+//           .where((request) =>
+//               request['createdBy'] == userEmail || request['role'] == 'user')
+//           .toList();
+//     } else if (userRole == 'user') {
+//       return _requests
+//           .where((request) => request['createdBy'] == userEmail)
+//           .toList();
+//     } else {
+//       return [];
+//     }
+//   }
+
+//   Map<String, dynamic>? getRequestById(String id) {
+//     return _requests.firstWhere(
+//       (request) => request['id'] == id,
+//       orElse: () => <String, dynamic>{}, // Return an empty map if not found
+//     );
+//   }
+// }
+
+
+// import 'dart:math';
+// import 'package:flutter/material.dart';
+// import 'package:cloud_firestore/cloud_firestore.dart';
+
+// class RequestProvider with ChangeNotifier {
+//   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+//   List<Map<String, dynamic>> _requests = [];
+
+//   List<Map<String, dynamic>> get requests => _requests;
+
+//   RequestProvider() {
+//     fetchRequests();
+//   }
+
+//   void fetchRequests() async {
+//     final querySnapshot = await _firestore.collection('requests').get();
+//     _requests = querySnapshot.docs.map((doc) {
+//       final data = doc.data() as Map<String, dynamic>;
+//       data['id'] = doc.id; // Include document ID in the request data
+//       return data;
+//     }).toList();
+//     notifyListeners();
+//   }
+
+//   String generateUniqueCode() {
+//     final random = Random();
+//     return (100000 + random.nextInt(900000)).toString();
+//   }
+
+//   Future<void> addRequest(
+//       List<Map<String, dynamic>> items,
+//       String location,
+//       String pickerName,
+//       String pickerContact,
+//       String note,
+//       String createdBy) async {
+//     String uniqueCode = generateUniqueCode();
+//     final request = {
+//       'items': items,
+//       'status': 'pending',
+//       'timestamp': DateTime.now(),
+//       'location': location,
+//       'pickerName': pickerName,
+//       'pickerContact': pickerContact,
+//       'note': note,
+//       'uniqueCode': uniqueCode,
+//       'codeValid': false,
+//       'createdBy': createdBy,
+//     };
+//     final docRef = await _firestore.collection('requests').add(request);
+//     request['id'] = docRef.id; // Add document ID to the request
+//     _requests.add(request);
+//     notifyListeners();
+//   }
+
+//   Future<void> updateRequestStatus(String id, String status) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1) {
+//       _requests[index]['status'] = status;
+//       if (status == 'approved') {
+//         setCodeValid(index, true);
+//       }
+//       await _firestore
+//           .collection('requests')
+//           .doc(id)
+//           .update({'status': status});
+//       notifyListeners();
+//     }
+//   }
+
+//   Future<void> cancelRequest(String id) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1) {
+//       _requests.removeAt(index);
+//       await _firestore.collection('requests').doc(id).delete();
+//       notifyListeners();
+//     }
+//   }
+
+//   Future<void> updateRequest(
+//       String id,
+//       List<Map<String, dynamic>> items,
+//       String location,
+//       String pickerName,
+//       String pickerContact,
+//       String note,
+//       String userEmail) async {
+//     final index = _requests.indexWhere((request) => request['id'] == id);
+//     if (index != -1 &&
+//         (_requests[index]['createdBy'] == userEmail || userEmail == 'admin')) {
+//       _requests[index]['items'] = items;
+//       _requests[index]['location'] = location;
+//       _requests[index]['pickerName'] = pickerName;
+//       _requests[index]['pickerContact'] = pickerContact;
+//       _requests[index]['note'] = note;
+//       await _firestore.collection('requests').doc(id).update({
+//         'items': items,
+//         'location': location,
+//         'pickerName': pickerName,
+//         'pickerContact': pickerContact,
+//         'note': note,
+//       });
+//       notifyListeners();
+//     }
+//   }
+
+//   void setCodeValid(int index, bool isValid) {
+//     _requests[index]['codeValid'] = isValid;
+//     _firestore
+//         .collection('requests')
+//         .doc(_requests[index]['id'])
+//         .update({'codeValid': isValid});
+//     notifyListeners();
+//   }
+
+//   bool verifyCode(String code) {
+//     try {
+//       final request = _requests.firstWhere(
+//           (req) => req['uniqueCode'] == code && req['codeValid'] == true);
+//       return request != null;
+//     } catch (e) {
+//       return false;
+//     }
+//   }
+
+//   Future<void> fulfillRequestByCode(String code) async {
+//     final index = _requests.indexWhere(
+//         (req) => req['uniqueCode'] == code && req['codeValid'] == true);
+//     if (index != -1) {
+//       _requests[index]['status'] = 'fulfilled';
+//       await _firestore
+//           .collection('requests')
+//           .doc(_requests[index]['id'])
+//           .update({'status': 'fulfilled'});
+//       notifyListeners();
+//     }
+//   }
+
+//   List<Map<String, dynamic>> getPendingRequests() {
+//     return _requests
+//         .where((request) => request['status'] == 'pending')
+//         .toList();
+//   }
+
+//   List<Map<String, dynamic>> getCompletedRequests() {
+//     return _requests
+//         .where((request) =>
+//             request['status'] != 'pending' &&
+//             DateTime.now().difference(request['timestamp'].toDate()).inDays < 1)
+//         .toList();
+//   }
+
+//   List<Map<String, dynamic>> getRequestsByRole(
+//       String userRole, String userEmail) {
+//     if (userRole == 'admin') {
+//       return _requests;
+//     } else if (userRole == 'manager') {
+//       return _requests
+//           .where((request) =>
+//               request['createdBy'] == userEmail || request['role'] == 'user')
+//           .toList();
+//     } else if (userRole == 'user') {
+//       return _requests
+//           .where((request) => request['createdBy'] == userEmail)
+//           .toList();
+//     } else {
+//       return [];
+//     }
+//   }
+
+//   Map<String, dynamic>? getRequestById(String id) {
+//     return _requests.firstWhere(
+//       (request) => request['id'] == id,
+//       orElse: () => <String, dynamic>{}, // Return an empty map if not found
+//     );
+//   }
+// }
 
 
 

@@ -1,3 +1,400 @@
+// import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/request_provider.dart';
+// import '../../providers/auth_provider.dart';
+// import 'edit_manager_request_bottom_sheet.dart';
+
+// class ManagerPendingRequestsScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserEmail = authProvider.currentUserEmail;
+//     final currentUserRole = authProvider.role;
+
+//     if (currentUserEmail == null) {
+//       return Scaffold(
+//         appBar: AppBar(
+//           title: Text('Pending Requests'),
+//         ),
+//         body: Center(
+//           child: Text('Error: Current user email is not available.'),
+//         ),
+//       );
+//     }
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: Text('Pending Requests'),
+//       ),
+//       body: Consumer<RequestProvider>(
+//         builder: (context, requestProvider, child) {
+//           final managerRequests = requestProvider
+//               .getRequestsByRole(currentUserRole!, currentUserEmail)
+//               .where((request) {
+//             return request['createdBy'] == currentUserEmail;
+//           }).toList();
+
+//           return ListView.builder(
+//             itemCount: managerRequests.length,
+//             itemBuilder: (context, index) {
+//               final request = managerRequests[index];
+//               if (request['status'] != 'pending') {
+//                 return Container();
+//               }
+//               return Card(
+//                 child: ListTile(
+//                   title: Text(
+//                     'Items: ${request['items'].map((item) => '${item['quantity']} x ${item['name']} (${item['unit']})').join(', ')}',
+//                   ),
+//                   subtitle: Text(
+//                     'Location: ${request['location']}\n'
+//                     'Picker: ${request['pickerName']}\n'
+//                     'Contact: ${request['pickerContact']}\n'
+//                     'Status: ${request['status']}\n'
+//                     'Unique Code: ${request['uniqueCode']}',
+//                   ),
+//                   leading: Icon(
+//                     Icons.hourglass_empty,
+//                     color: Colors.orange,
+//                   ),
+//                   onTap: () {
+//                     if (request['createdBy'] == currentUserEmail ||
+//                         currentUserRole == 'admin') {
+//                       _showRequestOptions(
+//                         context,
+//                         request['id'], // Pass the request ID instead of index
+//                         List<Map<String, dynamic>>.from(request['items']),
+//                         request['location'] ?? 'Default Location',
+//                         request['pickerName'] ?? '',
+//                         request['pickerContact'] ?? '',
+//                         request['note'] ?? '',
+//                         request['createdBy'],
+//                       );
+//                     }
+//                   },
+//                 ),
+//               );
+//             },
+//           );
+//         },
+//       ),
+//     );
+//   }
+
+//   void _showRequestOptions(
+//     BuildContext context,
+//     String id, // Change index to id
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserRole = authProvider.role;
+//     final currentUserEmail = authProvider.currentUserEmail;
+
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) {
+//         return Container(
+//           padding: EdgeInsets.all(16),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               mainAxisSize: MainAxisSize.min,
+//               children: [
+//                 Text(
+//                   'Request Details',
+//                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                 ),
+//                 SizedBox(height: 16),
+//                 ...items.map((item) => ListTile(
+//                       title: Text(
+//                           '${item['name']} x${item['quantity']} (${item['unit']})'),
+//                     )),
+//                 SizedBox(height: 16),
+//                 if (note.isNotEmpty) ...[
+//                   Text(
+//                     'Note:',
+//                     style: TextStyle(fontWeight: FontWeight.bold),
+//                   ),
+//                   Text(note),
+//                   SizedBox(height: 16),
+//                 ],
+//                 if (createdBy == currentUserEmail ||
+//                     currentUserRole == 'admin') ...[
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _editRequest(
+//                         context,
+//                         id, // Pass the request ID instead of index
+//                         items,
+//                         location,
+//                         pickerName,
+//                         pickerContact,
+//                         note,
+//                         createdBy,
+//                       );
+//                     },
+//                     child: Text('Edit Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.blue,
+//                     ),
+//                   ),
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _deleteRequest(context, id,
+//                           createdBy); // Pass the request ID instead of index
+//                     },
+//                     child: Text('Delete Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.red,
+//                     ),
+//                   ),
+//                 ]
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+//   void _editRequest(
+//     BuildContext context,
+//     String id, // Change index to id
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) => EditManagerRequestBottomSheet(
+//         id: id, // Pass the request ID instead of index
+//         items: items,
+//         location: location,
+//         pickerName: pickerName,
+//         pickerContact: pickerContact,
+//         note: note,
+//         createdBy: createdBy,
+//       ),
+//     );
+//   }
+
+//   void _deleteRequest(BuildContext context, String id, String createdBy) {
+//     final requestProvider =
+//         Provider.of<RequestProvider>(context, listen: false);
+//     requestProvider.cancelRequest(id); // Use ID instead of index
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Request deleted')),
+//     );
+//   }
+// }
+// import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/request_provider.dart';
+// import '../../providers/auth_provider.dart';
+// import 'edit_manager_request_bottom_sheet.dart';
+
+// class ManagerPendingRequestsScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserEmail = authProvider.currentUserEmail;
+//     final currentUserRole = authProvider.role;
+
+//     if (currentUserEmail == null) {
+//       return Scaffold(
+//         appBar: AppBar(
+//           title: Text('Pending Requests'),
+//         ),
+//         body: Center(
+//           child: Text('Error: Current user email is not available.'),
+//         ),
+//       );
+//     }
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: Text('Pending Requests'),
+//       ),
+//       body: Consumer<RequestProvider>(
+//         builder: (context, requestProvider, child) {
+//           final managerRequests = requestProvider.requests.where((request) {
+//             return request['status'] == 'pending' &&
+//                 (request['createdBy'] == currentUserEmail ||
+//                     request['role'] == 'user' ||
+//                     currentUserRole == 'admin');
+//           }).toList();
+
+//           if (managerRequests.isEmpty) {
+//             return Center(
+//               child: Text('No pending requests found.'),
+//             );
+//           }
+
+//           return ListView.builder(
+//             itemCount: managerRequests.length,
+//             itemBuilder: (context, index) {
+//               final request = managerRequests[index];
+//               return Card(
+//                 child: ListTile(
+//                   title: Text(
+//                     'Items: ${request['items'].map((item) => '${item['quantity']} x ${item['name']} (${item['unit']})').join(', ')}',
+//                   ),
+//                   subtitle: Text(
+//                     'Location: ${request['location']}\n'
+//                     'Picker: ${request['pickerName']}\n'
+//                     'Contact: ${request['pickerContact']}\n'
+//                     'Status: ${request['status']}\n'
+//                     'Unique Code: ${request['uniqueCode']}',
+//                   ),
+//                   leading: Icon(
+//                     Icons.hourglass_empty,
+//                     color: Colors.orange,
+//                   ),
+//                   onTap: () {
+//                     _showRequestOptions(
+//                       context,
+//                       request['id'],
+//                       List<Map<String, dynamic>>.from(request['items']),
+//                       request['location'] ?? 'Default Location',
+//                       request['pickerName'] ?? '',
+//                       request['pickerContact'] ?? '',
+//                       request['note'] ?? '',
+//                       request['createdBy'],
+//                     );
+//                   },
+//                 ),
+//               );
+//             },
+//           );
+//         },
+//       ),
+//     );
+//   }
+
+//   void _showRequestOptions(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserRole = authProvider.role;
+//     final currentUserEmail = authProvider.currentUserEmail;
+
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) {
+//         return Container(
+//           padding: EdgeInsets.all(16),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               mainAxisSize: MainAxisSize.min,
+//               children: [
+//                 Text(
+//                   'Request Details',
+//                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                 ),
+//                 SizedBox(height: 16),
+//                 ...items.map((item) => ListTile(
+//                       title: Text(
+//                           '${item['name']} x${item['quantity']} (${item['unit']})'),
+//                     )),
+//                 SizedBox(height: 16),
+//                 if (note.isNotEmpty) ...[
+//                   Text(
+//                     'Note:',
+//                     style: TextStyle(fontWeight: FontWeight.bold),
+//                   ),
+//                   Text(note),
+//                   SizedBox(height: 16),
+//                 ],
+//                 if (createdBy == currentUserEmail ||
+//                     currentUserRole == 'admin') ...[
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _editRequest(
+//                         context,
+//                         id,
+//                         items,
+//                         location,
+//                         pickerName,
+//                         pickerContact,
+//                         note,
+//                         createdBy,
+//                       );
+//                     },
+//                     child: Text('Edit Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.blue,
+//                     ),
+//                   ),
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _deleteRequest(context, id, createdBy);
+//                     },
+//                     child: Text('Delete Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.red,
+//                     ),
+//                   ),
+//                 ]
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+//   void _editRequest(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) => EditManagerRequestBottomSheet(
+//         id: id,
+//         items: items,
+//         location: location,
+//         pickerName: pickerName,
+//         pickerContact: pickerContact,
+//         note: note,
+//         createdBy: createdBy,
+//       ),
+//     );
+//   }
+
+//   void _deleteRequest(BuildContext context, String id, String createdBy) {
+//     final requestProvider =
+//         Provider.of<RequestProvider>(context, listen: false);
+//     requestProvider.cancelRequest(id);
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Request deleted')),
+//     );
+//   }
+// }
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/request_provider.dart';
@@ -28,15 +425,20 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
       ),
       body: Consumer<RequestProvider>(
         builder: (context, requestProvider, child) {
-          final requests = requestProvider.getRequestsByRole(
-              currentUserRole!, currentUserEmail);
+          final managerRequests = requestProvider.requests.where((request) {
+            return request['status'] == 'pending';
+          }).toList();
+
+          if (managerRequests.isEmpty) {
+            return Center(
+              child: Text('No pending requests found.'),
+            );
+          }
+
           return ListView.builder(
-            itemCount: requests.length,
+            itemCount: managerRequests.length,
             itemBuilder: (context, index) {
-              final request = requests[index];
-              if (request['status'] != 'pending') {
-                return Container();
-              }
+              final request = managerRequests[index];
               return Card(
                 child: ListTile(
                   title: Text(
@@ -54,19 +456,16 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
                     color: Colors.orange,
                   ),
                   onTap: () {
-                    if (request['createdBy'] == currentUserEmail ||
-                        currentUserRole == 'admin') {
-                      _showRequestOptions(
-                        context,
-                        request['id'], // Pass the request ID instead of index
-                        List<Map<String, dynamic>>.from(request['items']),
-                        request['location'] ?? 'Default Location',
-                        request['pickerName'] ?? '',
-                        request['pickerContact'] ?? '',
-                        request['note'] ?? '',
-                        request['createdBy'],
-                      );
-                    }
+                    _showRequestOptions(
+                      context,
+                      request['id'],
+                      List<Map<String, dynamic>>.from(request['items']),
+                      request['location'] ?? 'Default Location',
+                      request['pickerName'] ?? '',
+                      request['pickerContact'] ?? '',
+                      request['note'] ?? '',
+                      request['createdBy'],
+                    );
                   },
                 ),
               );
@@ -79,7 +478,7 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
 
   void _showRequestOptions(
     BuildContext context,
-    String id, // Change index to id
+    String id,
     List<Map<String, dynamic>> items,
     String location,
     String pickerName,
@@ -119,13 +518,14 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
                   SizedBox(height: 16),
                 ],
                 if (createdBy == currentUserEmail ||
-                    currentUserRole == 'admin') ...[
+                    currentUserRole == 'admin' ||
+                    currentUserRole == 'manager') ...[
                   ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pop();
                       _editRequest(
                         context,
-                        id, // Pass the request ID instead of index
+                        id,
                         items,
                         location,
                         pickerName,
@@ -142,8 +542,7 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
                   ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      _deleteRequest(context, id,
-                          createdBy); // Pass the request ID instead of index
+                      _deleteRequest(context, id, createdBy);
                     },
                     child: Text('Delete Request'),
                     style: ElevatedButton.styleFrom(
@@ -161,7 +560,7 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
 
   void _editRequest(
     BuildContext context,
-    String id, // Change index to id
+    String id,
     List<Map<String, dynamic>> items,
     String location,
     String pickerName,
@@ -172,7 +571,7 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
     showModalBottomSheet(
       context: context,
       builder: (context) => EditManagerRequestBottomSheet(
-        id: id, // Pass the request ID instead of index
+        id: id,
         items: items,
         location: location,
         pickerName: pickerName,
@@ -186,12 +585,616 @@ class ManagerPendingRequestsScreen extends StatelessWidget {
   void _deleteRequest(BuildContext context, String id, String createdBy) {
     final requestProvider =
         Provider.of<RequestProvider>(context, listen: false);
-    requestProvider.cancelRequest(id); // Use ID instead of index
+    requestProvider.cancelRequest(id);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Request deleted')),
     );
   }
 }
+
+
+// import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/request_provider.dart';
+// import '../../providers/auth_provider.dart';
+// import 'edit_manager_request_bottom_sheet.dart';
+
+// class ManagerPendingRequestsScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserEmail = authProvider.currentUserEmail;
+//     final currentUserRole = authProvider.role;
+
+//     if (currentUserEmail == null) {
+//       return Scaffold(
+//         appBar: AppBar(
+//           title: Text('Pending Requests'),
+//         ),
+//         body: Center(
+//           child: Text('Error: Current user email is not available.'),
+//         ),
+//       );
+//     }
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: Text('Pending Requests'),
+//       ),
+//       body: Consumer<RequestProvider>(
+//         builder: (context, requestProvider, child) {
+//           final managerRequests = requestProvider.requests.where((request) {
+//             return request['status'] == 'pending' &&
+//                 (request['createdBy'] == currentUserEmail ||
+//                     currentUserRole == 'admin' ||
+//                     currentUserRole == 'manager' && request['role'] == 'user');
+//           }).toList();
+
+//           if (managerRequests.isEmpty) {
+//             return Center(
+//               child: Text('No pending requests found.'),
+//             );
+//           }
+
+//           return ListView.builder(
+//             itemCount: managerRequests.length,
+//             itemBuilder: (context, index) {
+//               final request = managerRequests[index];
+//               return Card(
+//                 child: ListTile(
+//                   title: Text(
+//                     'Items: ${request['items'].map((item) => '${item['quantity']} x ${item['name']} (${item['unit']})').join(', ')}',
+//                   ),
+//                   subtitle: Text(
+//                     'Location: ${request['location']}\n'
+//                     'Picker: ${request['pickerName']}\n'
+//                     'Contact: ${request['pickerContact']}\n'
+//                     'Status: ${request['status']}\n'
+//                     'Unique Code: ${request['uniqueCode']}',
+//                   ),
+//                   leading: Icon(
+//                     Icons.hourglass_empty,
+//                     color: Colors.orange,
+//                   ),
+//                   onTap: () {
+//                     _showRequestOptions(
+//                       context,
+//                       request['id'],
+//                       List<Map<String, dynamic>>.from(request['items']),
+//                       request['location'] ?? 'Default Location',
+//                       request['pickerName'] ?? '',
+//                       request['pickerContact'] ?? '',
+//                       request['note'] ?? '',
+//                       request['createdBy'],
+//                     );
+//                   },
+//                 ),
+//               );
+//             },
+//           );
+//         },
+//       ),
+//     );
+//   }
+
+//   void _showRequestOptions(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserRole = authProvider.role;
+//     final currentUserEmail = authProvider.currentUserEmail;
+
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) {
+//         return Container(
+//           padding: EdgeInsets.all(16),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               mainAxisSize: MainAxisSize.min,
+//               children: [
+//                 Text(
+//                   'Request Details',
+//                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                 ),
+//                 SizedBox(height: 16),
+//                 ...items.map((item) => ListTile(
+//                       title: Text(
+//                           '${item['name']} x${item['quantity']} (${item['unit']})'),
+//                     )),
+//                 SizedBox(height: 16),
+//                 if (note.isNotEmpty) ...[
+//                   Text(
+//                     'Note:',
+//                     style: TextStyle(fontWeight: FontWeight.bold),
+//                   ),
+//                   Text(note),
+//                   SizedBox(height: 16),
+//                 ],
+//                 if (createdBy == currentUserEmail ||
+//                     currentUserRole == 'admin') ...[
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _editRequest(
+//                         context,
+//                         id,
+//                         items,
+//                         location,
+//                         pickerName,
+//                         pickerContact,
+//                         note,
+//                         createdBy,
+//                       );
+//                     },
+//                     child: Text('Edit Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.blue,
+//                     ),
+//                   ),
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _deleteRequest(context, id, createdBy);
+//                     },
+//                     child: Text('Delete Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.red,
+//                     ),
+//                   ),
+//                 ]
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+//   void _editRequest(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) => EditManagerRequestBottomSheet(
+//         id: id,
+//         items: items,
+//         location: location,
+//         pickerName: pickerName,
+//         pickerContact: pickerContact,
+//         note: note,
+//         createdBy: createdBy,
+//       ),
+//     );
+//   }
+
+//   void _deleteRequest(BuildContext context, String id, String createdBy) {
+//     final requestProvider =
+//         Provider.of<RequestProvider>(context, listen: false);
+//     requestProvider.cancelRequest(id);
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Request deleted')),
+//     );
+//   }
+// }
+
+
+// import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/request_provider.dart';
+// import '../../providers/auth_provider.dart';
+// import 'edit_manager_request_bottom_sheet.dart';
+
+// class ManagerPendingRequestsScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserEmail = authProvider.currentUserEmail;
+//     final currentUserRole = authProvider.role;
+
+//     if (currentUserEmail == null) {
+//       return Scaffold(
+//         appBar: AppBar(
+//           title: Text('Pending Requests'),
+//         ),
+//         body: Center(
+//           child: Text('Error: Current user email is not available.'),
+//         ),
+//       );
+//     }
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: Text('Pending Requests'),
+//       ),
+//       body: Consumer<RequestProvider>(
+//         builder: (context, requestProvider, child) {
+//           final managerRequests = requestProvider.requests.where((request) {
+//             return request['createdBy'] == currentUserEmail ||
+//                 currentUserRole == 'admin' ||
+//                 (currentUserRole == 'manager' && request['role'] == 'user');
+//           }).toList();
+
+//           if (managerRequests.isEmpty) {
+//             return Center(
+//               child: Text('No pending requests found.'),
+//             );
+//           }
+
+//           return ListView.builder(
+//             itemCount: managerRequests.length,
+//             itemBuilder: (context, index) {
+//               final request = managerRequests[index];
+//               if (request['status'] != 'pending') {
+//                 return Container();
+//               }
+//               return Card(
+//                 child: ListTile(
+//                   title: Text(
+//                     'Items: ${request['items'].map((item) => '${item['quantity']} x ${item['name']} (${item['unit']})').join(', ')}',
+//                   ),
+//                   subtitle: Text(
+//                     'Location: ${request['location']}\n'
+//                     'Picker: ${request['pickerName']}\n'
+//                     'Contact: ${request['pickerContact']}\n'
+//                     'Status: ${request['status']}\n'
+//                     'Unique Code: ${request['uniqueCode']}',
+//                   ),
+//                   leading: Icon(
+//                     Icons.hourglass_empty,
+//                     color: Colors.orange,
+//                   ),
+//                   onTap: () {
+//                     _showRequestOptions(
+//                       context,
+//                       request['id'],
+//                       List<Map<String, dynamic>>.from(request['items']),
+//                       request['location'] ?? 'Default Location',
+//                       request['pickerName'] ?? '',
+//                       request['pickerContact'] ?? '',
+//                       request['note'] ?? '',
+//                       request['createdBy'],
+//                     );
+//                   },
+//                 ),
+//               );
+//             },
+//           );
+//         },
+//       ),
+//     );
+//   }
+
+//   void _showRequestOptions(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserRole = authProvider.role;
+//     final currentUserEmail = authProvider.currentUserEmail;
+
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) {
+//         return Container(
+//           padding: EdgeInsets.all(16),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               mainAxisSize: MainAxisSize.min,
+//               children: [
+//                 Text(
+//                   'Request Details',
+//                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                 ),
+//                 SizedBox(height: 16),
+//                 ...items.map((item) => ListTile(
+//                       title: Text(
+//                           '${item['name']} x${item['quantity']} (${item['unit']})'),
+//                     )),
+//                 SizedBox(height: 16),
+//                 if (note.isNotEmpty) ...[
+//                   Text(
+//                     'Note:',
+//                     style: TextStyle(fontWeight: FontWeight.bold),
+//                   ),
+//                   Text(note),
+//                   SizedBox(height: 16),
+//                 ],
+//                 if (createdBy == currentUserEmail ||
+//                     currentUserRole == 'admin') ...[
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _editRequest(
+//                         context,
+//                         id,
+//                         items,
+//                         location,
+//                         pickerName,
+//                         pickerContact,
+//                         note,
+//                         createdBy,
+//                       );
+//                     },
+//                     child: Text('Edit Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.blue,
+//                     ),
+//                   ),
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _deleteRequest(context, id, createdBy);
+//                     },
+//                     child: Text('Delete Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.red,
+//                     ),
+//                   ),
+//                 ]
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+//   void _editRequest(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) => EditManagerRequestBottomSheet(
+//         id: id,
+//         items: items,
+//         location: location,
+//         pickerName: pickerName,
+//         pickerContact: pickerContact,
+//         note: note,
+//         createdBy: createdBy,
+//       ),
+//     );
+//   }
+
+//   void _deleteRequest(BuildContext context, String id, String createdBy) {
+//     final requestProvider =
+//         Provider.of<RequestProvider>(context, listen: false);
+//     requestProvider.cancelRequest(id);
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Request deleted')),
+//     );
+//   }
+// }
+
+
+// import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/request_provider.dart';
+// import '../../providers/auth_provider.dart';
+// import 'edit_manager_request_bottom_sheet.dart';
+
+// class ManagerPendingRequestsScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserEmail = authProvider.currentUserEmail;
+//     final currentUserRole = authProvider.role;
+
+//     if (currentUserEmail == null) {
+//       return Scaffold(
+//         appBar: AppBar(
+//           title: Text('Pending Requests'),
+//         ),
+//         body: Center(
+//           child: Text('Error: Current user email is not available.'),
+//         ),
+//       );
+//     }
+
+//     return Scaffold(
+//       appBar: AppBar(
+//         title: Text('Pending Requests'),
+//       ),
+//       body: Consumer<RequestProvider>(
+//         builder: (context, requestProvider, child) {
+//           final managerRequests = requestProvider.requests.where((request) {
+//             return request['createdBy'] == currentUserEmail ||
+//                 currentUserRole == 'admin';
+//           }).toList();
+
+//           if (managerRequests.isEmpty) {
+//             return Center(
+//               child: Text('No pending requests found.'),
+//             );
+//           }
+
+//           return ListView.builder(
+//             itemCount: managerRequests.length,
+//             itemBuilder: (context, index) {
+//               final request = managerRequests[index];
+//               if (request['status'] != 'pending') {
+//                 return Container();
+//               }
+//               return Card(
+//                 child: ListTile(
+//                   title: Text(
+//                     'Items: ${request['items'].map((item) => '${item['quantity']} x ${item['name']} (${item['unit']})').join(', ')}',
+//                   ),
+//                   subtitle: Text(
+//                     'Location: ${request['location']}\n'
+//                     'Picker: ${request['pickerName']}\n'
+//                     'Contact: ${request['pickerContact']}\n'
+//                     'Status: ${request['status']}\n'
+//                     'Unique Code: ${request['uniqueCode']}',
+//                   ),
+//                   leading: Icon(
+//                     Icons.hourglass_empty,
+//                     color: Colors.orange,
+//                   ),
+//                   onTap: () {
+//                     _showRequestOptions(
+//                       context,
+//                       request['id'],
+//                       List<Map<String, dynamic>>.from(request['items']),
+//                       request['location'] ?? 'Default Location',
+//                       request['pickerName'] ?? '',
+//                       request['pickerContact'] ?? '',
+//                       request['note'] ?? '',
+//                       request['createdBy'],
+//                     );
+//                   },
+//                 ),
+//               );
+//             },
+//           );
+//         },
+//       ),
+//     );
+//   }
+
+//   void _showRequestOptions(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     final authProvider = Provider.of<AuthProvider>(context, listen: false);
+//     final currentUserRole = authProvider.role;
+//     final currentUserEmail = authProvider.currentUserEmail;
+
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) {
+//         return Container(
+//           padding: EdgeInsets.all(16),
+//           child: SingleChildScrollView(
+//             child: Column(
+//               mainAxisSize: MainAxisSize.min,
+//               children: [
+//                 Text(
+//                   'Request Details',
+//                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+//                 ),
+//                 SizedBox(height: 16),
+//                 ...items.map((item) => ListTile(
+//                       title: Text(
+//                           '${item['name']} x${item['quantity']} (${item['unit']})'),
+//                     )),
+//                 SizedBox(height: 16),
+//                 if (note.isNotEmpty) ...[
+//                   Text(
+//                     'Note:',
+//                     style: TextStyle(fontWeight: FontWeight.bold),
+//                   ),
+//                   Text(note),
+//                   SizedBox(height: 16),
+//                 ],
+//                 if (createdBy == currentUserEmail ||
+//                     currentUserRole == 'admin') ...[
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _editRequest(
+//                         context,
+//                         id,
+//                         items,
+//                         location,
+//                         pickerName,
+//                         pickerContact,
+//                         note,
+//                         createdBy,
+//                       );
+//                     },
+//                     child: Text('Edit Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.blue,
+//                     ),
+//                   ),
+//                   ElevatedButton(
+//                     onPressed: () {
+//                       Navigator.of(context).pop();
+//                       _deleteRequest(context, id, createdBy);
+//                     },
+//                     child: Text('Delete Request'),
+//                     style: ElevatedButton.styleFrom(
+//                       backgroundColor: Colors.red,
+//                     ),
+//                   ),
+//                 ]
+//               ],
+//             ),
+//           ),
+//         );
+//       },
+//     );
+//   }
+
+//   void _editRequest(
+//     BuildContext context,
+//     String id,
+//     List<Map<String, dynamic>> items,
+//     String location,
+//     String pickerName,
+//     String pickerContact,
+//     String note,
+//     String createdBy,
+//   ) {
+//     showModalBottomSheet(
+//       context: context,
+//       builder: (context) => EditManagerRequestBottomSheet(
+//         id: id,
+//         items: items,
+//         location: location,
+//         pickerName: pickerName,
+//         pickerContact: pickerContact,
+//         note: note,
+//         createdBy: createdBy,
+//       ),
+//     );
+//   }
+
+//   void _deleteRequest(BuildContext context, String id, String createdBy) {
+//     final requestProvider =
+//         Provider.of<RequestProvider>(context, listen: false);
+//     requestProvider.cancelRequest(id);
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text('Request deleted')),
+//     );
+//   }
+// }
+
 
 
 // import 'package:flutter/material.dart';
