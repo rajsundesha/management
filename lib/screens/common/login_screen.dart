@@ -1,92 +1,7 @@
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import '../../providers/auth_provider.dart';
-
-// class LoginScreen extends StatefulWidget {
-//   @override
-//   _LoginScreenState createState() => _LoginScreenState();
-// }
-
-// class _LoginScreenState extends State<LoginScreen> {
-//   final TextEditingController emailController = TextEditingController();
-//   final TextEditingController passwordController = TextEditingController();
-//   String _selectedRole = 'User'; // Default role
-//   bool _isLoading = false;
-//   String? _errorMessage;
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: Text('Login')),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           children: <Widget>[
-//             TextField(
-//               controller: emailController,
-//               decoration: InputDecoration(labelText: 'Email'),
-//             ),
-//             TextField(
-//               controller: passwordController,
-//               decoration: InputDecoration(labelText: 'Password'),
-//               obscureText: true,
-//             ),
-//             SizedBox(height: 20),
-//             DropdownButton<String>(
-//               value: _selectedRole,
-//               items: <String>['User', 'Admin', 'Manager', 'Gate Man']
-//                   .map((String value) {
-//                 return DropdownMenuItem<String>(
-//                   value: value,
-//                   child: Text(value),
-//                 );
-//               }).toList(),
-//               onChanged: (String? newValue) {
-//                 setState(() {
-//                   _selectedRole = newValue!;
-//                 });
-//               },
-//             ),
-//             SizedBox(height: 20),
-//             _isLoading
-//                 ? CircularProgressIndicator()
-//                 : ElevatedButton(
-//                     onPressed: () async {
-//                       setState(() {
-//                         _isLoading = true;
-//                         _errorMessage = null;
-//                       });
-//                       try {
-//                         await Provider.of<AuthProvider>(context, listen: false)
-//                             .login(
-//                                 emailController.text, passwordController.text);
-//                         Navigator.pushReplacementNamed(context, '/');
-//                       } catch (e) {
-//                         setState(() {
-//                           _errorMessage = e.toString();
-//                           _isLoading = false;
-//                         });
-//                       }
-//                     },
-//                     child: Text('Login'),
-//                   ),
-//             if (_errorMessage != null) ...[
-//               SizedBox(height: 20),
-//               Text(
-//                 _errorMessage!,
-//                 style: TextStyle(color: Colors.red),
-//               ),
-//             ]
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-// }
-
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../providers/auth_provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 
 class LoginScreen extends StatefulWidget {
   @override
@@ -96,22 +11,24 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  String _selectedRole = 'User'; // Default role
+  String _selectedRole = 'User';
   bool _isLoading = false;
-  String? _errorMessage;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Login')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             TextField(
               controller: emailController,
               decoration: InputDecoration(labelText: 'Email'),
+              keyboardType: TextInputType.emailAddress,
             ),
+            SizedBox(height: 16),
             TextField(
               controller: passwordController,
               decoration: InputDecoration(labelText: 'Password'),
@@ -119,6 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             SizedBox(height: 20),
             DropdownButton<String>(
+              isExpanded: true,
               value: _selectedRole,
               items: <String>['User', 'Admin', 'Manager', 'Gate Man']
                   .map((String value) {
@@ -135,55 +53,127 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             SizedBox(height: 20),
             _isLoading
-                ? CircularProgressIndicator()
+                ? Center(child: CircularProgressIndicator())
                 : ElevatedButton(
-                    onPressed: () async {
-                      setState(() {
-                        _isLoading = true;
-                        _errorMessage = null;
-                      });
-                      try {
-                        await Provider.of<AuthProvider>(context, listen: false)
-                            .login(
-                                emailController.text, passwordController.text);
-                        Navigator.pushReplacementNamed(context, '/');
-                      } catch (e) {
-                        setState(() {
-                          _errorMessage = e.toString();
-                          _isLoading = false;
-                        });
-                        print("Error during login: $e");
-                      }
-                    },
+                    onPressed: _login,
                     child: Text('Login'),
                   ),
             SizedBox(height: 20),
+            TextButton(
+              child: Text('Forgot Password'),
+              onPressed: _forgotPassword,
+            ),
             TextButton(
               onPressed: () {
                 Navigator.pushNamed(context, '/signup');
               },
               child: Text('Don\'t have an account? Sign up here.'),
             ),
-            if (_errorMessage != null) ...[
-              SizedBox(height: 20),
-              Text(
-                _errorMessage!,
-                style: TextStyle(color: Colors.red),
-              ),
-            ]
           ],
         ),
       ),
     );
   }
+
+  Future<void> _login() async {
+    if (!mounted) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final authProvider =
+          Provider.of<app_auth.AuthProvider>(context, listen: false);
+      await authProvider.login(emailController.text, passwordController.text);
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacementNamed('/');
+    } catch (e) {
+      if (!mounted) return;
+      String errorMessage = _getErrorMessage(e);
+      print("Login error: $errorMessage");
+      _showSnackBar(errorMessage);
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  String _getErrorMessage(dynamic error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'invalid-email':
+          return 'The email address is not valid.';
+        case 'user-disabled':
+          return 'This user account has been disabled.';
+        case 'user-not-found':
+          return 'No user found with this email address.';
+        case 'wrong-password':
+          return 'Incorrect password. Please try again.';
+        case 'invalid-credential':
+          return 'The supplied auth credential is malformed or has expired.';
+        case 'email-not-verified':
+          return 'Please check your email and verify your account before logging in.';
+        default:
+          return 'An error occurred during login: ${error.message}';
+      }
+    }
+    return 'An unexpected error occurred. Please try again.';
+  }
+
+  void _showSnackBar(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _showVerificationDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Email Verification Required'),
+          content: Text(
+              'Please check your email and verify your account before logging in.'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _forgotPassword() async {
+    final email = emailController.text;
+    if (email.isNotEmpty) {
+      try {
+        await Provider.of<app_auth.AuthProvider>(context, listen: false)
+            .sendPasswordResetEmail(email);
+        _showSnackBar('Password reset email sent. Please check your inbox.');
+      } catch (e) {
+        _showSnackBar('Error sending password reset email: ${e.toString()}');
+      }
+    } else {
+      _showSnackBar('Please enter your email address');
+    }
+  }
 }
-
-
-
 
 // import 'package:flutter/material.dart';
 // import 'package:provider/provider.dart';
-// import '../../providers/auth_provider.dart';
+// import '../../providers/auth_provider.dart' as app_auth;
+// import 'package:firebase_auth/firebase_auth.dart';
 
 // class LoginScreen extends StatefulWidget {
 //   @override
@@ -193,20 +183,24 @@ class _LoginScreenState extends State<LoginScreen> {
 // class _LoginScreenState extends State<LoginScreen> {
 //   final TextEditingController emailController = TextEditingController();
 //   final TextEditingController passwordController = TextEditingController();
-//   String _selectedRole = 'User'; // Default role
+//   String _selectedRole = 'User';
+//   bool _isLoading = false;
 
 //   @override
 //   Widget build(BuildContext context) {
 //     return Scaffold(
 //       appBar: AppBar(title: Text('Login')),
-//       body: Padding(
+//       body: SingleChildScrollView(
 //         padding: const EdgeInsets.all(16.0),
 //         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.stretch,
 //           children: <Widget>[
 //             TextField(
 //               controller: emailController,
 //               decoration: InputDecoration(labelText: 'Email'),
+//               keyboardType: TextInputType.emailAddress,
 //             ),
+//             SizedBox(height: 16),
 //             TextField(
 //               controller: passwordController,
 //               decoration: InputDecoration(labelText: 'Password'),
@@ -214,6 +208,7 @@ class _LoginScreenState extends State<LoginScreen> {
 //             ),
 //             SizedBox(height: 20),
 //             DropdownButton<String>(
+//               isExpanded: true,
 //               value: _selectedRole,
 //               items: <String>['User', 'Admin', 'Manager', 'Gate Man']
 //                   .map((String value) {
@@ -229,97 +224,264 @@ class _LoginScreenState extends State<LoginScreen> {
 //               },
 //             ),
 //             SizedBox(height: 20),
-//             ElevatedButton(
+//             _isLoading
+//                 ? Center(child: CircularProgressIndicator())
+//                 : ElevatedButton(
+//                     onPressed: _login,
+//                     child: Text('Login'),
+//                   ),
+//             SizedBox(height: 20),
+//             TextButton(
+//               child: Text('Forgot Password'),
+//               onPressed: _forgotPassword,
+//             ),
+//             TextButton(
 //               onPressed: () {
-//                 Provider.of<AuthProvider>(context, listen: false)
-//                     .login(_selectedRole, emailController.text);
-//                 if (_selectedRole == 'User') {
-//                   Navigator.pushNamed(context, '/user_dashboard');
-//                 } else if (_selectedRole == 'Admin') {
-//                   Navigator.pushNamed(context, '/admin_dashboard');
-//                 } else if (_selectedRole == 'Manager') {
-//                   Navigator.pushNamed(context, '/manager_dashboard');
-//                 } else if (_selectedRole == 'Gate Man') {
-//                   Navigator.pushNamed(context, '/gate_man_dashboard');
-//                 }
+//                 Navigator.pushNamed(context, '/signup');
 //               },
-//               child: Text('Login'),
+//               child: Text('Don\'t have an account? Sign up here.'),
 //             ),
 //           ],
 //         ),
 //       ),
 //     );
 //   }
-// }
 
+//   // Future<void> _login() async {
+//   //   if (!mounted) return;
 
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import '../../providers/auth_provider.dart';
+//   //   setState(() => _isLoading = true);
 
-// class LoginScreen extends StatefulWidget {
-//   @override
-//   _LoginScreenState createState() => _LoginScreenState();
-// }
+//   //   try {
+//   //     User? user =
+//   //         await Provider.of<app_auth.AuthProvider>(context, listen: false)
+//   //             .login(emailController.text, passwordController.text);
 
-// class _LoginScreenState extends State<LoginScreen> {
-//   final TextEditingController emailController = TextEditingController();
-//   final TextEditingController passwordController = TextEditingController();
-//   String _selectedRole = 'User'; // Default role
+//   //     if (!mounted) return;
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: Text('Login')),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           children: <Widget>[
-//             TextField(
-//               controller: emailController,
-//               decoration: InputDecoration(labelText: 'Email'),
-//             ),
-//             TextField(
-//               controller: passwordController,
-//               decoration: InputDecoration(labelText: 'Password'),
-//               obscureText: true,
-//             ),
-//             SizedBox(height: 20),
-//             DropdownButton<String>(
-//               value: _selectedRole,
-//               items: <String>['User', 'Admin', 'Manager', 'GateMan']
-//                   .map((String value) {
-//                 return DropdownMenuItem<String>(
-//                   value: value,
-//                   child: Text(value),
-//                 );
-//               }).toList(),
-//               onChanged: (String? newValue) {
-//                 setState(() {
-//                   _selectedRole = newValue!;
-//                 });
-//               },
-//             ),
-//             SizedBox(height: 20),
-//             ElevatedButton(
+//   //     if (user != null) {
+//   //       if (user.emailVerified) {
+//   //         _showSnackBar('Login successful!');
+//   //         Navigator.of(context).pushReplacementNamed('/');
+//   //       } else {
+//   //         await user.sendEmailVerification();
+//   //         _showVerificationDialog();
+//   //       }
+//   //     } else {
+//   //       _showSnackBar('Login failed. Please try again.');
+//   //     }
+//   //   } catch (e) {
+//   //     if (!mounted) return;
+//   //     String errorMessage = _getErrorMessage(e);
+//   //     _showSnackBar(errorMessage);
+//   //   } finally {
+//   //     if (mounted) {
+//   //       setState(() => _isLoading = false);
+//   //     }
+//   //   }
+//   // }
+
+//   // String _getErrorMessage(dynamic error) {
+//   //   if (error is FirebaseAuthException) {
+//   //     switch (error.code) {
+//   //       case 'invalid-email':
+//   //         return 'The email address is not valid.';
+//   //       case 'user-disabled':
+//   //         return 'This user account has been disabled.';
+//   //       case 'user-not-found':
+//   //         return 'No user found with this email address.';
+//   //       case 'wrong-password':
+//   //         return 'Incorrect password. Please try again.';
+//   //       case 'invalid-credential':
+//   //         return 'The supplied auth credential is malformed or has expired.';
+//   //       default:
+//   //         return 'An error occurred during login. Please try again. (${error.code})';
+//   //     }
+//   //   }
+//   //   return 'An unexpected error occurred. Please try again.';
+//   // }
+
+//   void _showSnackBar(String message) {
+//     if (mounted) {
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(
+//           content: Text(message),
+//           duration: Duration(seconds: 3),
+//         ),
+//       );
+//     }
+//   }
+
+//   // void _showVerificationDialog() {
+//   //   showDialog(
+//   //     context: context,
+//   //     builder: (BuildContext context) {
+//   //       return AlertDialog(
+//   //         title: Text('Email Verification Required'),
+//   //         content: Text(
+//   //             'Please check your email and verify your account before logging in.'),
+//   //         actions: <Widget>[
+//   //           TextButton(
+//   //             child: Text('OK'),
+//   //             onPressed: () {
+//   //               Navigator.of(context).pop();
+//   //             },
+//   //           ),
+//   //         ],
+//   //       );
+//   //     },
+//   //   );
+//   // }
+//   void _checkAuthStatus() {
+//     final authProvider =
+//         Provider.of<app_auth.AuthProvider>(context, listen: false);
+//     if (authProvider.user != null && !authProvider.isEmailVerified) {
+//       _showVerificationDialog();
+//     }
+//   }
+
+//   Future<void> _login() async {
+//     if (!mounted) return;
+
+//     setState(() => _isLoading = true);
+
+//     try {
+//       final authProvider =
+//           Provider.of<app_auth.AuthProvider>(context, listen: false);
+//       await authProvider.login(emailController.text, passwordController.text);
+
+//       if (!mounted) return;
+
+//       if (authProvider.isEmailVerified) {
+//         Navigator.of(context).pushReplacementNamed('/');
+//       } else {
+//         _showVerificationDialog();
+//       }
+//     } catch (e) {
+//       if (!mounted) return;
+//       String errorMessage = _getErrorMessage(e);
+//       print("Login error: $errorMessage");
+//       if (e is FirebaseAuthException && e.code == 'email-not-verified') {
+//         _showVerificationDialog();
+//       } else {
+//         _showSnackBar(errorMessage);
+//       }
+//     } finally {
+//       if (mounted) {
+//         setState(() => _isLoading = false);
+//       }
+//     }
+//   }
+
+//   String _getErrorMessage(dynamic error) {
+//     if (error is FirebaseAuthException) {
+//       switch (error.code) {
+//         case 'invalid-email':
+//           return 'The email address is not valid.';
+//         case 'user-disabled':
+//           return 'This user account has been disabled.';
+//         case 'user-not-found':
+//           return 'No user found with this email address.';
+//         case 'wrong-password':
+//           return 'Incorrect password. Please try again.';
+//         case 'invalid-credential':
+//           return 'The supplied auth credential is malformed or has expired.';
+//         case 'email-not-verified':
+//           return 'Please check your email and verify your account before logging in.';
+//         default:
+//           return 'An error occurred during login: ${error.message}';
+//       }
+//     }
+//     return 'An unexpected error occurred. Please try again.';
+//   }
+
+//   // Future<void> _login() async {
+//   //   if (!mounted) return;
+
+//   //   setState(() => _isLoading = true);
+
+//   //   try {
+//   //     final authProvider =
+//   //         Provider.of<app_auth.AuthProvider>(context, listen: false);
+//   //     await authProvider.login(emailController.text, passwordController.text);
+
+//   //     if (!mounted) return;
+
+//   //     if (authProvider.isEmailVerified) {
+//   //       Navigator.of(context).pushReplacementNamed('/');
+//   //     } else {
+//   //       _showVerificationDialog();
+//   //     }
+//   //   } catch (e) {
+//   //     if (!mounted) return;
+//   //     String errorMessage = _getErrorMessage(e);
+//   //     if (e is FirebaseAuthException && e.code == 'email-not-verified') {
+//   //       _showVerificationDialog();
+//   //     } else {
+//   //       _showSnackBar(errorMessage);
+//   //     }
+//   //   } finally {
+//   //     if (mounted) {
+//   //       setState(() => _isLoading = false);
+//   //     }
+//   //   }
+//   // }
+
+//   // String _getErrorMessage(dynamic error) {
+//   //   if (error is FirebaseAuthException) {
+//   //     switch (error.code) {
+//   //       case 'invalid-email':
+//   //         return 'The email address is not valid.';
+//   //       case 'user-disabled':
+//   //         return 'This user account has been disabled.';
+//   //       case 'user-not-found':
+//   //         return 'No user found with this email address.';
+//   //       case 'wrong-password':
+//   //         return 'Incorrect password. Please try again.';
+//   //       case 'invalid-credential':
+//   //         return 'The supplied auth credential is malformed or has expired.';
+//   //       case 'email-not-verified':
+//   //         return 'Please check your email and verify your account before logging in.';
+//   //       default:
+//   //         return 'An error occurred during login. Please try again. (${error.code})';
+//   //     }
+//   //   }
+//   //   return 'An unexpected error occurred. Please try again.';
+//   // }
+
+//   void _showVerificationDialog() {
+//     showDialog(
+//       context: context,
+//       builder: (BuildContext context) {
+//         return AlertDialog(
+//           title: Text('Email Verification Required'),
+//           content: Text(
+//               'Please check your email and verify your account before logging in.'),
+//           actions: <Widget>[
+//             TextButton(
+//               child: Text('OK'),
 //               onPressed: () {
-//                 Provider.of<AuthProvider>(context, listen: false)
-//                     .login(_selectedRole);
-//                 if (_selectedRole == 'User') {
-//                   Navigator.pushNamed(context, '/user_dashboard');
-//                 } else if (_selectedRole == 'Admin') {
-//                   Navigator.pushNamed(context, '/admin_dashboard');
-//                 } else if (_selectedRole == 'Manager') {
-//                   Navigator.pushNamed(context, '/manager_dashboard');
-//                 } else if (_selectedRole == 'GateMan') {
-//                   Navigator.pushNamed(context, '/gate_man_screen');
-//                 }
+//                 Navigator.of(context).pop();
 //               },
-//               child: Text('Login'),
 //             ),
 //           ],
-//         ),
-//       ),
+//         );
+//       },
 //     );
+//   }
+
+//   Future<void> _forgotPassword() async {
+//     final email = emailController.text;
+//     if (email.isNotEmpty) {
+//       try {
+//         await Provider.of<app_auth.AuthProvider>(context, listen: false)
+//             .sendPasswordResetEmail(email);
+//         _showSnackBar('Password reset email sent. Please check your inbox.');
+//       } catch (e) {
+//         _showSnackBar('Error sending password reset email: ${e.toString()}');
+//       }
+//     } else {
+//       _showSnackBar('Please enter your email address');
+//     }
 //   }
 // }

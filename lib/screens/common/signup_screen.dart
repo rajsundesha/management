@@ -8,6 +8,7 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
+  final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   String _selectedRole = 'User'; // Default role
@@ -22,6 +23,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: <Widget>[
+            TextField(
+              controller: nameController,
+              decoration: InputDecoration(labelText: 'Name'),
+            ),
             TextField(
               controller: emailController,
               decoration: InputDecoration(labelText: 'Email'),
@@ -58,9 +63,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       });
                       try {
                         await Provider.of<AuthProvider>(context, listen: false)
-                            .createUser(emailController.text,
-                                passwordController.text, _selectedRole);
-                        Navigator.pushReplacementNamed(context, '/');
+                            .createUserWithAdmin(
+                                emailController.text,
+                                passwordController.text,
+                                _selectedRole,
+                                nameController.text);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('User created successfully')),
+                        );
+                        Navigator.pop(context);
                       } catch (e) {
                         setState(() {
                           _errorMessage = e.toString();

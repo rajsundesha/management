@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+ 
+    function isAdmin() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user != null && user.role == 'Admin';
+    }
+
+    function isManager() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return user != null && user.role == 'Manager';
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /inventory/{itemId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isManager();
+    }
+
+    match /requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && 
+                            (resource.data.createdBy == request.auth.uid || 
+                             isAdmin() || 
+                             isManager());
+    }
+
+    match /stock_requests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isManager() || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+  }
+}

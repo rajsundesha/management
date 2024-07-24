@@ -1,21 +1,38 @@
+import 'package:dhavla_road_project/providers/notification_provider.dart';
+import 'package:dhavla_road_project/screens/common/notification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/notification_provider.dart' as custom_notification;
+// import '../common/notifications_screen.dart';
 
-class AdminDashboardScreen extends StatelessWidget {
+class AdminDashboardScreen extends StatefulWidget {
+  @override
+  _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  bool _isLoading = false;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('Admin Dashboard'),
         actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout();
-              Navigator.pushReplacementNamed(context, '/');
-            },
-          ),
+          _buildNotificationIcon(),
+          ElevatedButton(
+            onPressed: _isLoading ? null : _logout,
+            child: _isLoading
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : Text('Logout'),
+          )
         ],
       ),
       body: Padding(
@@ -57,6 +74,12 @@ class AdminDashboardScreen extends StatelessWidget {
                     'Reports',
                     Icons.report,
                     '/reports',
+                  ),
+                  _buildDashboardCard(
+                    context,
+                    'Manage Stock Requests',
+                    Icons.add_shopping_cart,
+                    '/admin_manage_stock_requests',
                   ),
                   _buildDashboardCard(
                     context,
@@ -106,27 +129,113 @@ class AdminDashboardScreen extends StatelessWidget {
       ),
     );
   }
-}
 
+  Widget _buildNotificationIcon() {
+    return Consumer<NotificationProvider>(
+      builder: (context, notificationProvider, child) {
+        int unreadCount = notificationProvider.unreadNotificationsCount;
+        return Stack(
+          children: [
+            IconButton(
+              icon: Icon(Icons.notifications),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => NotificationsScreen()),
+                );
+              },
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  constraints: BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    '$unreadCount',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _logout() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await Provider.of<AuthProvider>(context, listen: false).logout();
+
+      if (!mounted) return;
+
+      Navigator.of(context).pushReplacementNamed('/login');
+    } catch (e) {
+      if (!mounted) return;
+
+      print("Error during logout: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error logging out. Please try again.')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+}
 
 // import 'package:flutter/material.dart';
 // import 'package:provider/provider.dart';
 // import '../../providers/auth_provider.dart';
 
-// class AdminDashboardScreen extends StatelessWidget {
+// class AdminDashboardScreen extends StatefulWidget {
+//   @override
+//   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
+// }
+
+// class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+//   bool _isLoading = false;
+
 //   @override
 //   Widget build(BuildContext context) {
 //     return Scaffold(
 //       appBar: AppBar(
 //         title: Text('Admin Dashboard'),
 //         actions: [
-//           IconButton(
-//             icon: Icon(Icons.logout),
-//             onPressed: () {
-//               Provider.of<AuthProvider>(context, listen: false).logout();
-//               Navigator.pushReplacementNamed(context, '/');
-//             },
-//           ),
+//           ElevatedButton(
+//             onPressed: _isLoading ? null : _logout,
+//             child: _isLoading
+//                 ? SizedBox(
+//                     width: 20,
+//                     height: 20,
+//                     child: CircularProgressIndicator(
+//                       valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+//                     ),
+//                   )
+//                 : Text('Logout'),
+//           )
 //         ],
 //       ),
 //       body: Padding(
@@ -171,6 +280,12 @@ class AdminDashboardScreen extends StatelessWidget {
 //                   ),
 //                   _buildDashboardCard(
 //                     context,
+//                     'Manage Stock Requests',
+//                     Icons.add_shopping_cart,
+//                     '/admin_manage_stock_requests',
+//                   ),
+//                   _buildDashboardCard(
+//                     context,
 //                     'Settings',
 //                     Icons.settings,
 //                     '/settings',
@@ -196,12 +311,15 @@ class AdminDashboardScreen extends StatelessWidget {
 //       },
 //       child: Card(
 //         elevation: 4,
+//         shape: RoundedRectangleBorder(
+//           borderRadius: BorderRadius.circular(12),
+//         ),
 //         child: Padding(
 //           padding: const EdgeInsets.all(16.0),
 //           child: Column(
 //             mainAxisAlignment: MainAxisAlignment.center,
 //             children: [
-//               Icon(icon, size: 48),
+//               Icon(icon, size: 48, color: Colors.blue),
 //               SizedBox(height: 16),
 //               Text(
 //                 title,
@@ -214,29 +332,88 @@ class AdminDashboardScreen extends StatelessWidget {
 //       ),
 //     );
 //   }
+
+//   Future<void> _logout() async {
+//     if (!mounted) return;
+
+//     setState(() {
+//       _isLoading = true;
+//     });
+
+//     try {
+//       await Provider.of<AuthProvider>(context, listen: false).logout();
+
+//       if (!mounted) return;
+
+//       Navigator.of(context).pushReplacementNamed('/login');
+//     } catch (e) {
+//       if (!mounted) return;
+
+//       print("Error during logout: $e");
+//       ScaffoldMessenger.of(context).showSnackBar(
+//         SnackBar(content: Text('Error logging out. Please try again.')),
+//       );
+//     } finally {
+//       if (mounted) {
+//         setState(() {
+//           _isLoading = false;
+//         });
+//       }
+//     }
+//   }
+
+//   Widget _buildNotificationIcon() {
+//     return Consumer<custom_notification.NotificationProvider>(
+//       builder: (context, notificationProvider, child) {
+//         int unreadCount = notificationProvider.unreadNotificationsCount;
+//         return Stack(
+//           children: [
+//             IconButton(
+//               icon: Icon(Icons.notifications),
+//               onPressed: () {
+//                 Navigator.push(
+//                   context,
+//                   MaterialPageRoute(
+//                       builder: (context) => NotificationsScreen()),
+//                 );
+//               },
+//             ),
+//             if (unreadCount > 0)
+//               Positioned(
+//                 right: 0,
+//                 top: 0,
+//                 child: Container(
+//                   padding: EdgeInsets.all(2),
+//                   decoration: BoxDecoration(
+//                     color: Colors.red,
+//                     borderRadius: BorderRadius.circular(10),
+//                   ),
+//                   constraints: BoxConstraints(
+//                     minWidth: 16,
+//                     minHeight: 16,
+//                   ),
+//                   child: Text(
+//                     '$unreadCount',
+//                     style: TextStyle(
+//                       color: Colors.white,
+//                       fontSize: 10,
+//                     ),
+//                     textAlign: TextAlign.center,
+//                   ),
+//                 ),
+//               ),
+//           ],
+//         );
+//       },
+//     );
+//   }
+
 // }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+// import 'package:dhavla_road_project/screens/admin/admin_manage_stock_requests_screen.dart';
 // import 'package:flutter/material.dart';
+// import 'package:provider/provider.dart';
+// import '../../providers/auth_provider.dart';
 
 // class AdminDashboardScreen extends StatelessWidget {
 //   @override
@@ -244,6 +421,41 @@ class AdminDashboardScreen extends StatelessWidget {
 //     return Scaffold(
 //       appBar: AppBar(
 //         title: Text('Admin Dashboard'),
+//         actions: [
+//           // IconButton(
+//           //   icon: Icon(Icons.logout),
+//           //   onPressed: () {
+//           //     Provider.of<AuthProvider>(context, listen: false).logout();
+//           //     Navigator.pushReplacementNamed(context, '/');
+//           //   },
+//           // ),
+//           ElevatedButton(
+//             onPressed: () async {
+//               showDialog(
+//                 context: context,
+//                 barrierDismissible: false,
+//                 builder: (BuildContext context) {
+//                   return Center(child: CircularProgressIndicator());
+//                 },
+//               );
+
+//               try {
+//                 await Provider.of<AuthProvider>(context, listen: false)
+//                     .logout();
+//                 Navigator.of(context).pop(); // Dismiss the loading indicator
+//                 Navigator.of(context).pushReplacementNamed('/login');
+//               } catch (e) {
+//                 Navigator.of(context).pop(); // Dismiss the loading indicator
+//                 print("Error during logout: $e");
+//                 ScaffoldMessenger.of(context).showSnackBar(
+//                   SnackBar(
+//                       content: Text('Error logging out. Please try again.')),
+//                 );
+//               }
+//             },
+//             child: Text('Logout'),
+//           )
+//         ],
 //       ),
 //       body: Padding(
 //         padding: const EdgeInsets.all(16.0),
@@ -287,100 +499,9 @@ class AdminDashboardScreen extends StatelessWidget {
 //                   ),
 //                   _buildDashboardCard(
 //                     context,
-//                     'Settings',
-//                     Icons.settings,
-//                     '/settings',
-//                   ),
-//                 ],
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-
-//   Widget _buildDashboardCard(
-//     BuildContext context,
-//     String title,
-//     IconData icon,
-//     String route,
-//   ) {
-//     return GestureDetector(
-//       onTap: () {
-//         Navigator.pushNamed(context, route);
-//       },
-//       child: Card(
-//         elevation: 4,
-//         child: Padding(
-//           padding: const EdgeInsets.all(16.0),
-//           child: Column(
-//             mainAxisAlignment: MainAxisAlignment.center,
-//             children: [
-//               Icon(icon, size: 48),
-//               SizedBox(height: 16),
-//               Text(
-//                 title,
-//                 textAlign: TextAlign.center,
-//                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-//               ),
-//             ],
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-// }
-
-
-// import 'package:flutter/material.dart';
-
-// class AdminDashboardScreen extends StatelessWidget {
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Admin Dashboard'),
-//       ),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           crossAxisAlignment: CrossAxisAlignment.start,
-//           children: [
-//             Text(
-//               'Admin Dashboard',
-//               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-//             ),
-//             SizedBox(height: 16),
-//             Expanded(
-//               child: GridView.count(
-//                 crossAxisCount: 2,
-//                 crossAxisSpacing: 16,
-//                 mainAxisSpacing: 16,
-//                 children: [
-//                   _buildDashboardCard(
-//                     context,
-//                     'Manage Requests',
-//                     Icons.request_page,
-//                     '/manage_requests',
-//                   ),
-//                   _buildDashboardCard(
-//                     context,
-//                     'Manage Inventory',
-//                     Icons.inventory,
-//                     '/manage_inventory',
-//                   ),
-//                   _buildDashboardCard(
-//                     context,
-//                     'User Management',
-//                     Icons.people,
-//                     '/user_management',
-//                   ),
-//                   _buildDashboardCard(
-//                     context,
-//                     'Reports',
-//                     Icons.report,
-//                     '/reports',
+//                     'Manage Stock Requests',
+//                     Icons.add_shopping_cart,
+//                     '/admin_manage_stock_requests',
 //                   ),
 //                   _buildDashboardCard(
 //                     context,
@@ -409,12 +530,15 @@ class AdminDashboardScreen extends StatelessWidget {
 //       },
 //       child: Card(
 //         elevation: 4,
+//         shape: RoundedRectangleBorder(
+//           borderRadius: BorderRadius.circular(12),
+//         ),
 //         child: Padding(
 //           padding: const EdgeInsets.all(16.0),
 //           child: Column(
 //             mainAxisAlignment: MainAxisAlignment.center,
 //             children: [
-//               Icon(icon, size: 48),
+//               Icon(icon, size: 48, color: Colors.blue),
 //               SizedBox(height: 16),
 //               Text(
 //                 title,
@@ -428,109 +552,3 @@ class AdminDashboardScreen extends StatelessWidget {
 //     );
 //   }
 // }
-
-
-// import 'package:flutter/material.dart';
-
-// class AdminDashboardScreen extends StatelessWidget {
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Admin Dashboard'),
-//       ),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           children: [
-//             Expanded(
-//               child: GridView.count(
-//                 crossAxisCount: 2,
-//                 children: [
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.request_page,
-//                     label: 'Manage Requests',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/requests');
-//                     },
-//                   ),
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.inventory,
-//                     label: 'Manage Inventory',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/inventory');
-//                     },
-//                   ),
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.people,
-//                     label: 'Manage Users',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/users');
-//                     },
-//                   ),
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.analytics,
-//                     label: 'Reports & Analytics',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/reports');
-//                     },
-//                   ),
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.settings,
-//                     label: 'Settings',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/settings');
-//                     },
-//                   ),
-//                   _buildDashboardItem(
-//                     context,
-//                     icon: Icons.notifications,
-//                     label: 'Notifications',
-//                     onTap: () {
-//                       Navigator.pushNamed(context, '/admin/notifications');
-//                     },
-//                   ),
-//                 ],
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-
-//   Widget _buildDashboardItem(BuildContext context,
-//       {required IconData icon,
-//       required String label,
-//       required Function() onTap}) {
-//     return GestureDetector(
-//       onTap: onTap,
-//       child: Card(
-//         margin: const EdgeInsets.all(8.0),
-//         child: Column(
-//           mainAxisAlignment: MainAxisAlignment.center,
-//           children: [
-//             Icon(
-//               icon,
-//               size: 50,
-//               color: Theme.of(context).primaryColor,
-//             ),
-//             SizedBox(height: 16),
-//             Text(
-//               label,
-//               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-//               textAlign: TextAlign.center,
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-// }
-
-

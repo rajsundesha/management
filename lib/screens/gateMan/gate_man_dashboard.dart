@@ -1,151 +1,174 @@
+import 'package:dhavla_road_project/providers/notification_provider.dart';
+import 'package:dhavla_road_project/screens/common/notification_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import '../../providers/request_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../screens/gateMan/gateman_stock_request_screen.dart';
+import '../../providers/notification_provider.dart' as custom_notification;
 
-class GateManDashboard extends StatefulWidget {
-  @override
-  _GateManDashboardState createState() => _GateManDashboardState();
-}
-
-class _GateManDashboardState extends State<GateManDashboard> {
-  final TextEditingController _searchController = TextEditingController();
-  String _searchQuery = '';
-
+class GateManDashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Gate Man Dashboard'),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.logout),
-            onPressed: () {
-              Provider.of<AuthProvider>(context, listen: false).logout();
-              Navigator.pushReplacementNamed(context, '/');
-            },
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildSearchBar(),
-            SizedBox(height: 16),
-            _buildStatistics(context),
-            SizedBox(height: 16),
-            Text(
-              'Approved Requests',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, _) {
+        if (authProvider.user == null || authProvider.role != 'Gate Man') {
+          return Scaffold(
+            body: Center(
+              child: Text('You do not have permission to access this page.'),
             ),
-            SizedBox(height: 16),
-            Expanded(
-              child: Consumer<RequestProvider>(
-                builder: (context, requestProvider, child) {
-                  final approvedRequests =
-                      requestProvider.requests.where((request) {
-                    return request['status'] == 'approved' &&
-                        (request['pickerName']
-                                .toString()
-                                .toLowerCase()
-                                .contains(_searchQuery.toLowerCase()) ||
-                            request['pickerContact']
-                                .toString()
-                                .contains(_searchQuery));
-                  }).toList();
+          );
+        }
 
-                  return ListView.builder(
-                    itemCount: approvedRequests.length,
-                    itemBuilder: (context, index) {
-                      final request = approvedRequests[index];
-                      return Card(
-                        child: ListTile(
-                          title: Text(
-                            'Items: ${request['items'].map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
-                          ),
-                          subtitle: Text(
-                            'Location: ${request['location']}\n'
-                            'Picker: ${request['pickerName']}\n'
-                            'Contact: ${request['pickerContact']}\n'
-                            'Status: ${request['status']}\n'
-                            'Unique Code: ${request['uniqueCode']}',
-                          ),
-                          leading: Icon(
-                            Icons.request_page,
-                            color: Colors.green,
-                          ),
-                          trailing: IconButton(
-                            icon: Icon(Icons.verified, color: Colors.blue),
-                            onPressed: () {
-                              _verifyCodeDialog(context, request['uniqueCode']);
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
+        return DefaultTabController(
+          length: 3,
+          child: Scaffold(
+            appBar: AppBar(
+              title: Text('Gate Man Dashboard'),
+              actions: [
+                _buildNotificationIcon(),
+                _buildLogoutButton(context, authProvider),
+              ],
+              bottom: TabBar(
+                tabs: [
+                  Tab(text: 'Overview'),
+                  Tab(text: 'Approved Requests'),
+                  Tab(text: 'Stock Requests'),
+                ],
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return TextField(
-      controller: _searchController,
-      decoration: InputDecoration(
-        labelText: 'Search Requests by Picker Name or Contact',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.search),
-      ),
-      onChanged: (value) {
-        setState(() {
-          _searchQuery = value;
-        });
+            body: TabBarView(
+              children: [
+                SingleChildScrollView(child: _OverviewTab()),
+                _ApprovedRequestsTab(),
+                GatemanStockRequestScreen(),
+              ],
+            ),
+          ),
+        );
       },
     );
   }
 
-  Widget _buildStatistics(BuildContext context) {
-    final requestProvider = Provider.of<RequestProvider>(context);
-    final todayRequests = requestProvider.requests.where((request) {
-      final now = DateTime.now();
-      final requestDate = request['timestamp'] as DateTime;
-      return requestDate.year == now.year &&
-          requestDate.month == now.month &&
-          requestDate.day == now.day;
-    }).toList();
-
-    final approvedRequests = todayRequests
-        .where((request) => request['status'] == 'approved')
-        .length;
-    final fulfilledRequests = todayRequests
-        .where((request) => request['status'] == 'fulfilled')
-        .length;
-    final pendingRequests =
-        todayRequests.where((request) => request['status'] == 'pending').length;
-
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+  Widget _buildNotificationIcon() {
+    return Consumer<custom_notification.NotificationProvider>(
+      builder: (context, notificationProvider, child) {
+        int unreadCount = notificationProvider.unreadNotificationsCount;
+        return Stack(
           children: [
-            _buildStatisticCard('Total', todayRequests.length),
-            _buildStatisticCard('Approved', approvedRequests),
-            _buildStatisticCard('Fulfilled', fulfilledRequests),
+            IconButton(
+              icon: Icon(Icons.notifications),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => NotificationsScreen()),
+                );
+              },
+            ),
+            if (unreadCount > 0)
+              Positioned(
+                right: 0,
+                top: 0,
+                child: Container(
+                  padding: EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  constraints: BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    '$unreadCount',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
           ],
-        ),
-        SizedBox(height: 16),
-        _buildRequestStatusChart(
-            pendingRequests, approvedRequests, fulfilledRequests),
-      ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLogoutButton(BuildContext context, AuthProvider authProvider) {
+    return ElevatedButton(
+      onPressed: () async {
+        try {
+          await authProvider.logout();
+          Navigator.of(context).pushReplacementNamed('/login');
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error logging out. Please try again.')),
+          );
+        }
+      },
+      child: Text('Logout'),
+    );
+  }
+}
+
+class _OverviewTab extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Dashboard Overview',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 16),
+          _buildStatistics(context),
+          SizedBox(height: 16),
+          Container(
+            height: 200,
+            child: _buildRequestStatusChart(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatistics(BuildContext context) {
+    return Consumer<RequestProvider>(
+      builder: (context, requestProvider, _) {
+        final todayRequests = requestProvider.getTodayRequests();
+        final approvedRequests = todayRequests
+            .where((request) => request['status'] == 'approved')
+            .length;
+        final fulfilledRequests = todayRequests
+            .where((request) => request['status'] == 'fulfilled')
+            .length;
+        final pendingRequests = todayRequests
+            .where((request) => request['status'] == 'pending')
+            .length;
+
+        return Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildStatisticCard('Total', todayRequests.length),
+                _buildStatisticCard('Approved', approvedRequests),
+                _buildStatisticCard('Fulfilled', fulfilledRequests),
+              ],
+            ),
+            SizedBox(height: 16),
+            _buildRequestStatusChart(context),
+          ],
+        );
+      },
     );
   }
 
@@ -171,75 +194,42 @@ class _GateManDashboardState extends State<GateManDashboard> {
     );
   }
 
-  Widget _buildRequestStatusChart(int pending, int approved, int fulfilled) {
-    final data = [
-      RequestStatus('Pending', pending, Colors.orange),
-      RequestStatus('Approved', approved, Colors.green),
-      RequestStatus('Fulfilled', fulfilled, Colors.blue),
-    ];
+  Widget _buildRequestStatusChart(BuildContext context) {
+    return Consumer<RequestProvider>(
+      builder: (context, requestProvider, _) {
+        final todayRequests = requestProvider.getTodayRequests();
+        final pendingRequests = todayRequests
+            .where((request) => request['status'] == 'pending')
+            .length;
+        final approvedRequests = todayRequests
+            .where((request) => request['status'] == 'approved')
+            .length;
+        final fulfilledRequests = todayRequests
+            .where((request) => request['status'] == 'fulfilled')
+            .length;
 
-    return Container(
-      height: 200,
-      child: SfCircularChart(
-        legend: Legend(isVisible: true),
-        series: <CircularSeries>[
-          PieSeries<RequestStatus, String>(
-            dataSource: data,
-            xValueMapper: (RequestStatus data, _) => data.status,
-            yValueMapper: (RequestStatus data, _) => data.count,
-            pointColorMapper: (RequestStatus data, _) => data.color,
-          ),
-        ],
-      ),
-    );
-  }
+        final data = [
+          RequestStatus('Pending', pendingRequests, Colors.orange),
+          RequestStatus('Approved', approvedRequests, Colors.green),
+          RequestStatus('Fulfilled', fulfilledRequests, Colors.blue),
+        ];
 
-  void _verifyCodeDialog(BuildContext context, String uniqueCode) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        final TextEditingController _codeController = TextEditingController();
-        return AlertDialog(
-          title: Text('Verify Unique Code'),
-          content: TextField(
-            controller: _codeController,
-            decoration: InputDecoration(labelText: 'Enter Unique Code'),
+        return Container(
+          height: 200,
+          child: SfCircularChart(
+            legend: Legend(isVisible: true),
+            series: <CircularSeries>[
+              PieSeries<RequestStatus, String>(
+                dataSource: data,
+                xValueMapper: (RequestStatus data, _) => data.status,
+                yValueMapper: (RequestStatus data, _) => data.count,
+                pointColorMapper: (RequestStatus data, _) => data.color,
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                _verifyCode(context, _codeController.text, uniqueCode);
-              },
-              child: Text('Verify'),
-            ),
-          ],
         );
       },
     );
-  }
-
-  void _verifyCode(
-      BuildContext context, String enteredCode, String uniqueCode) {
-    final requestProvider =
-        Provider.of<RequestProvider>(context, listen: false);
-    if (enteredCode == uniqueCode) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Code verified! Items can be collected.')),
-      );
-      // Update request status to fulfilled
-      requestProvider.fulfillRequestByCode(uniqueCode);
-      Navigator.of(context).pop();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invalid code!')),
-      );
-    }
   }
 }
 
@@ -251,256 +241,233 @@ class RequestStatus {
   RequestStatus(this.status, this.count, this.color);
 }
 
+class _ApprovedRequestsTab extends StatefulWidget {
+  @override
+  _ApprovedRequestsTabState createState() => _ApprovedRequestsTabState();
+}
 
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import 'package:cloud_firestore/cloud_firestore.dart';
-// import 'package:syncfusion_flutter_charts/charts.dart';
-// import '../../providers/request_provider.dart';
-// import '../../providers/auth_provider.dart';
+class _ApprovedRequestsTabState extends State<_ApprovedRequestsTab> {
+  bool _shouldShowVerificationDialog = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  String? _pendingUniqueCode;
 
-// class GateManDashboard extends StatefulWidget {
-//   @override
-//   _GateManDashboardState createState() => _GateManDashboardState();
-// }
+  @override
+  Widget build(BuildContext context) {
+    if (_shouldShowVerificationDialog) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          _shouldShowVerificationDialog = false;
+        });
+        if (_pendingUniqueCode != null) {
+          _verifyCodeDialog(context, _pendingUniqueCode!);
+          _pendingUniqueCode = null;
+        }
+      });
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSearchBar(),
+          SizedBox(height: 16),
+          Expanded(
+            child: _buildApprovedRequestsList(),
+          ),
+        ],
+      ),
+    );
+  }
 
-// class _GateManDashboardState extends State<GateManDashboard> {
-//   final TextEditingController _searchController = TextEditingController();
-//   String _searchQuery = '';
+  Widget _buildSearchBar() {
+    return TextField(
+      controller: _searchController,
+      decoration: InputDecoration(
+        labelText: 'Search Requests by Picker Name or Contact',
+        border: OutlineInputBorder(),
+        prefixIcon: Icon(Icons.search),
+      ),
+      onChanged: (value) {
+        setState(() {
+          _searchQuery = value;
+        });
+      },
+    );
+  }
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Gate Man Dashboard'),
-//         actions: [
-//           IconButton(
-//             icon: Icon(Icons.logout),
-//             onPressed: () {
-//               Provider.of<AuthProvider>(context, listen: false).logout();
-//               Navigator.pushReplacementNamed(context, '/');
-//             },
-//           ),
-//         ],
-//       ),
-//       body: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           crossAxisAlignment: CrossAxisAlignment.start,
-//           children: [
-//             _buildSearchBar(),
-//             SizedBox(height: 16),
-//             _buildStatistics(context),
-//             SizedBox(height: 16),
-//             Text(
-//               'Approved Requests',
-//               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-//             ),
-//             SizedBox(height: 16),
-//             Expanded(
-//               child: Consumer<RequestProvider>(
-//                 builder: (context, requestProvider, child) {
-//                   final approvedRequests =
-//                       requestProvider.requests.where((request) {
-//                     return request['status'] == 'approved' &&
-//                         (request['pickerName']
-//                                 .toString()
-//                                 .toLowerCase()
-//                                 .contains(_searchQuery.toLowerCase()) ||
-//                             request['pickerContact']
-//                                 .toString()
-//                                 .contains(_searchQuery));
-//                   }).toList();
+  Widget _buildApprovedRequestsList() {
+    return Consumer<RequestProvider>(
+      builder: (context, requestProvider, _) {
+        final approvedRequests =
+            requestProvider.getApprovedRequests(_searchQuery);
 
-//                   return ListView.builder(
-//                     itemCount: approvedRequests.length,
-//                     itemBuilder: (context, index) {
-//                       final request = approvedRequests[index];
-//                       return Card(
-//                         child: ListTile(
-//                           title: Text(
-//                             'Items: ${request['items'].map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
-//                           ),
-//                           subtitle: Text(
-//                             'Location: ${request['location']}\n'
-//                             'Picker: ${request['pickerName']}\n'
-//                             'Contact: ${request['pickerContact']}\n'
-//                             'Status: ${request['status']}\n'
-//                             'Unique Code: ${request['uniqueCode']}',
-//                           ),
-//                           leading: Icon(
-//                             Icons.request_page,
-//                             color: Colors.green,
-//                           ),
-//                           trailing: IconButton(
-//                             icon: Icon(Icons.verified, color: Colors.blue),
-//                             onPressed: () {
-//                               _verifyCodeDialog(context, request['uniqueCode']);
-//                             },
-//                           ),
-//                         ),
-//                       );
-//                     },
-//                   );
-//                 },
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
+        if (approvedRequests.isEmpty) {
+          return Center(child: Text('No approved requests found.'));
+        }
 
-//   Widget _buildSearchBar() {
-//     return TextField(
-//       controller: _searchController,
-//       decoration: InputDecoration(
-//         labelText: 'Search Requests by Picker Name or Contact',
-//         border: OutlineInputBorder(),
-//         prefixIcon: Icon(Icons.search),
-//       ),
-//       onChanged: (value) {
-//         setState(() {
-//           _searchQuery = value;
-//         });
-//       },
-//     );
-//   }
+        return ListView.builder(
+          itemCount: approvedRequests.length,
+          itemBuilder: (context, index) {
+            final request = approvedRequests[index];
+            return _buildRequestCard(context, request);
+          },
+        );
+      },
+    );
+  }
 
-//   Widget _buildStatistics(BuildContext context) {
-//     final requestProvider = Provider.of<RequestProvider>(context);
-//     final todayRequests = requestProvider.requests.where((request) {
-//       final now = DateTime.now();
-//       final requestDate = (request['timestamp'] as Timestamp).toDate();
-//       return requestDate.year == now.year &&
-//           requestDate.month == now.month &&
-//           requestDate.day == now.day;
-//     }).toList();
+  Widget _buildRequestCard(BuildContext context, Map<String, dynamic> request) {
+    return Card(
+      child: ListTile(
+        title: Text(
+          'Items: ${request['items'].map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
+        ),
+        subtitle: Text(
+          'Location: ${request['location']}\n'
+          'Picker: ${request['pickerName']}\n'
+          'Contact: ${request['pickerContact']}\n'
+          'Status: ${request['status']}\n'
+          'Unique Code: ${request['uniqueCode']}',
+        ),
+        leading: Icon(
+          Icons.request_page,
+          color: Colors.green,
+        ),
+        trailing: IconButton(
+          icon: Icon(Icons.verified, color: Colors.blue),
+          onPressed: () {
+            _verifyCodeDialog(context, request['uniqueCode']);
+          },
+        ),
+      ),
+    );
+  }
 
-//     final approvedRequests = todayRequests
-//         .where((request) => request['status'] == 'approved')
-//         .length;
-//     final fulfilledRequests = todayRequests
-//         .where((request) => request['status'] == 'fulfilled')
-//         .length;
-//     final pendingRequests =
-//         todayRequests.where((request) => request['status'] == 'pending').length;
+  void _verifyCodeDialog(BuildContext context, String uniqueCode) {
+    final TextEditingController _codeController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text('Verify Unique Code'),
+          content: TextField(
+            controller: _codeController,
+            decoration: InputDecoration(
+              labelText: 'Enter 6-digit Unique Code',
+              hintText: '000000',
+            ),
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(6),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (_codeController.text.length != 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Please enter a 6-digit code')),
+                  );
+                } else {
+                  Navigator.of(dialogContext).pop();
+                  _verifyCode(context, _codeController.text, uniqueCode);
+                }
+              },
+              child: Text('Verify'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-//     return Column(
-//       children: [
-//         Row(
-//           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-//           children: [
-//             _buildStatisticCard('Total', todayRequests.length),
-//             _buildStatisticCard('Approved', approvedRequests),
-//             _buildStatisticCard('Fulfilled', fulfilledRequests),
-//           ],
-//         ),
-//         SizedBox(height: 16),
-//         _buildRequestStatusChart(
-//             pendingRequests, approvedRequests, fulfilledRequests),
-//       ],
-//     );
-//   }
+  void _verifyCode(
+      BuildContext context, String enteredCode, String uniqueCode) async {
+    if (enteredCode.length != 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter a 6-digit code')),
+      );
+      return;
+    }
 
-//   Widget _buildStatisticCard(String title, int count) {
-//     return Card(
-//       elevation: 4,
-//       child: Padding(
-//         padding: const EdgeInsets.all(16.0),
-//         child: Column(
-//           children: [
-//             Text(
-//               title,
-//               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-//             ),
-//             SizedBox(height: 8),
-//             Text(
-//               '$count',
-//               style: TextStyle(fontSize: 18),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
+    print("Verifying code: $enteredCode");
+    final requestProvider =
+        Provider.of<RequestProvider>(context, listen: false);
 
-//   Widget _buildRequestStatusChart(int pending, int approved, int fulfilled) {
-//     final data = [
-//       RequestStatus('Pending', pending, Colors.orange),
-//       RequestStatus('Approved', approved, Colors.green),
-//       RequestStatus('Fulfilled', fulfilled, Colors.blue),
-//     ];
+    // Show loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Center(child: CircularProgressIndicator());
+      },
+    );
 
-//     return Container(
-//       height: 200,
-//       child: SfCircularChart(
-//         legend: Legend(isVisible: true),
-//         series: <CircularSeries>[
-//           PieSeries<RequestStatus, String>(
-//             dataSource: data,
-//             xValueMapper: (RequestStatus data, _) => data.status,
-//             yValueMapper: (RequestStatus data, _) => data.count,
-//             pointColorMapper: (RequestStatus data, _) => data.color,
-//           ),
-//         ],
-//       ),
-//     );
-//   }
+    try {
+      bool isValid = await requestProvider.checkCodeValidity(enteredCode);
 
-//   void _verifyCodeDialog(BuildContext context, String uniqueCode) {
-//     showDialog(
-//       context: context,
-//       builder: (context) {
-//         final TextEditingController _codeController = TextEditingController();
-//         return AlertDialog(
-//           title: Text('Verify Unique Code'),
-//           content: TextField(
-//             controller: _codeController,
-//             decoration: InputDecoration(labelText: 'Enter Unique Code'),
-//           ),
-//           actions: [
-//             TextButton(
-//               onPressed: () {
-//                 Navigator.of(context).pop();
-//               },
-//               child: Text('Cancel'),
-//             ),
-//             ElevatedButton(
-//               onPressed: () {
-//                 _verifyCode(context, _codeController.text, uniqueCode);
-//               },
-//               child: Text('Verify'),
-//             ),
-//           ],
-//         );
-//       },
-//     );
-//   }
+      // Dismiss loading indicator
+      Navigator.of(context).pop();
 
-//   void _verifyCode(
-//       BuildContext context, String enteredCode, String uniqueCode) {
-//     final requestProvider =
-//         Provider.of<RequestProvider>(context, listen: false);
-//     if (enteredCode == uniqueCode) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Code verified! Items can be collected.')),
-//       );
-//       // Update request status to fulfilled
-//       requestProvider.fulfillRequestByCode(uniqueCode);
-//       Navigator.of(context).pop();
-//     } else {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Invalid code!')),
-//       );
-//     }
-//   }
-// }
+      if (!isValid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Invalid code. Please check and try again.'),
+            action: SnackBarAction(
+              label: 'Try Again',
+              onPressed: () {
+                setState(() {
+                  _shouldShowVerificationDialog = true;
+                  _pendingUniqueCode = uniqueCode;
+                });
+              },
+            ),
+          ),
+        );
+        return;
+      }
 
-// class RequestStatus {
-//   final String status;
-//   final int count;
-//   final Color color;
+      await requestProvider.fulfillRequestByCode(enteredCode);
 
-//   RequestStatus(this.status, this.count, this.color);
-// }
+      print("Code verification successful");
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Code verified! Items can be collected.')),
+      );
+
+      // Refresh the list
+      setState(() {});
+    } catch (e) {
+      // Dismiss loading indicator if it's still showing
+      Navigator.of(context).popUntil((route) => route.isFirst);
+
+      print("Error during code verification: $e");
+
+      // Show error message with option to try again
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Error: ${e.toString()}. Please check the code and try again.'),
+          action: SnackBarAction(
+            label: 'Try Again',
+            onPressed: () {
+              setState(() {
+                _shouldShowVerificationDialog = true;
+                _pendingUniqueCode = uniqueCode;
+              });
+            },
+          ),
+        ),
+      );
+    }
+  }
+}

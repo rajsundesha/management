@@ -1,19 +1,32 @@
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/request_provider.dart';
 
 class ManagerCompletedRequestsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUserEmail = authProvider.currentUserEmail;
+    final currentUserRole = authProvider.role;
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Completed Requests'),
       ),
-      body: Consumer<RequestProvider>(
-        builder: (context, requestProvider, child) {
-          final completedRequests = requestProvider.requests
-              .where((request) => request['status'] == 'fulfilled')
-              .toList();
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: Provider.of<RequestProvider>(context, listen: false)
+            .getRequestsStream(
+                currentUserEmail!, currentUserRole!, 'fulfilled'),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          final completedRequests = snapshot.data ?? [];
           return ListView.builder(
             itemCount: completedRequests.length,
             itemBuilder: (context, index) {
@@ -21,7 +34,7 @@ class ManagerCompletedRequestsScreen extends StatelessWidget {
               return Card(
                 child: ListTile(
                   title: Text(
-                    'Items: ${request['items'].map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
+                    'Items: ${(request['items'] as List).map((item) => '${item['quantity']} ${item['unit']} x ${item['name']}').join(', ')}',
                   ),
                   subtitle: Text(
                     'Location: ${request['location']}\n'

@@ -49,5 +49,20 @@
 <string>We need your permission to access the photo library.</string>
 <key>NSDocumentsFolderUsageDescription</key>
 <string>We need your permission to access the documents folder.</string>
+<key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>app-1-659070244201-ios-653f4d5948e190df9459f8</string>
+            </array>
+        </dict>
+    </array>
+				  <key>NSContactsUsageDescription</key>
+  <string>This app requires contacts access to function properly.</string>
+		<key>FirebaseAppDelegateProxyEnabled</key>
+<false/>
+<key>FirebaseMessagingAutoInitEnabled</key>
+<false/>
 </dict>
 </plist> 
