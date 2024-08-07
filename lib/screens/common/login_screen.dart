@@ -1,3 +1,4 @@
+import 'package:dhavla_road_project/providers/notification_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -60,8 +61,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
             SizedBox(height: 20),
             TextButton(
-              child: Text('Forgot Password'),
-              onPressed: _forgotPassword,
+              onPressed: _isLoading ? null : _forgotPassword,
+              child: _isLoading
+                  ? CircularProgressIndicator()
+                  : Text('Forgot Password'),
             ),
             TextButton(
               onPressed: () {
@@ -156,19 +159,106 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _forgotPassword() async {
     final email = emailController.text;
-    if (email.isNotEmpty) {
-      try {
-        await Provider.of<app_auth.AuthProvider>(context, listen: false)
-            .sendPasswordResetEmail(email);
-        _showSnackBar('Password reset email sent. Please check your inbox.');
-      } catch (e) {
-        _showSnackBar('Error sending password reset email: ${e.toString()}');
-      }
-    } else {
+    if (email.isEmpty) {
       _showSnackBar('Please enter your email address');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final authProvider =
+          Provider.of<app_auth.AuthProvider>(context, listen: false);
+      await authProvider.sendPasswordResetEmail(email);
+      _showSnackBar(
+          'If an account exists for $email, a password reset email has been sent. Please check your inbox.');
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'invalid-email':
+          errorMessage = 'The email address is not valid.';
+          break;
+        case 'user-not-found':
+          errorMessage =
+              'If an account exists, a password reset email has been sent.';
+          break;
+        case 'inconsistent-user-data':
+          errorMessage =
+              'There was an issue with your account. Please contact support.';
+          break;
+        default:
+          errorMessage = 'An error occurred. Please try again later.';
+      }
+      _showSnackBar(errorMessage);
+    } catch (e) {
+      _showSnackBar('An unexpected error occurred. Please try again later.');
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
+
+  void _showSignUpOption() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Account Not Found'),
+          content: Text('Would you like to create a new account?'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: Text('Sign Up'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushNamed(context, '/signup');
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showContactSupportDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Account Issue'),
+          content: Text(
+              'There was an issue with your account. Please contact our support team for assistance.'),
+          actions: <Widget>[
+            TextButton(
+              child: Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
+
+  // Future<void> _forgotPassword() async {
+  //   final email = emailController.text;
+  //   if (email.isNotEmpty) {
+  //     try {
+  //       await Provider.of<app_auth.AuthProvider>(context, listen: false)
+  //           .sendPasswordResetEmail(email);
+  //       _showSnackBar('Password reset email sent. Please check your inbox.');
+  //     } catch (e) {
+  //       _showSnackBar('Error sending password reset email: ${e.toString()}');
+  //     }
+  //   } else {
+  //     _showSnackBar('Please enter your email address');
+  //   }
+  // }
 
 // import 'package:flutter/material.dart';
 // import 'package:provider/provider.dart';

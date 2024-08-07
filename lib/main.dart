@@ -1,5 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:dhavla_road_project/providers/location_provider.dart';
 import 'package:dhavla_road_project/providers/notification_provider.dart';
+import 'package:dhavla_road_project/screens/admin/account_deletion_requests_screen.dart';
+import 'package:dhavla_road_project/screens/admin/manage_location_screen.dart';
+import 'package:dhavla_road_project/screens/common/Notification_test_screen.dart';
+import 'package:dhavla_road_project/screens/common/global_keys.dart';
+import 'package:dhavla_road_project/screens/common/request_details_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -33,127 +40,43 @@ import 'screens/manager/manager_statistics_screen.dart';
 import 'screens/gateman/gate_man_dashboard.dart';
 import 'screens/common/loading_screen.dart';
 import 'providers/auth_provider.dart' as app_auth;
+// import 'providers/notification_provider.dart';
 
-// void main() async {
-//   WidgetsFlutterBinding.ensureInitialized();
-//   await Firebase.initializeApp();
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("Handling a background message: ${message.messageId}");
+}
 
-//   final authProvider = app_auth.AuthProvider();
-
-//   User? user = FirebaseAuth.instance.currentUser;
-//   if (user != null) {
-//     await authProvider.ensureUserDocument();
-//   }
-
-//   runApp(
-//     MultiProvider(
-//       providers: [
-//         ChangeNotifierProvider<InventoryProvider>(
-//             create: (_) => InventoryProvider()),
-//         ChangeNotifierProvider<app_auth.AuthProvider>.value(
-//             value: authProvider),
-//         ChangeNotifierProvider<RequestProvider>(
-//             create: (_) => RequestProvider()),
-//       ],
-//       child: MyApp(),
-//     ),
-//   );
-// }
-
-// Future<void> _initializeFirebase() async {
-//   try {
-//     await Firebase.initializeApp();
-//     print('Firebase initialized successfully');
-//   } catch (e) {
-//     print('Failed to initialize Firebase: $e');
-//   }
-// }
-
-// Future<void> _requestNotificationPermissions() async {
-//   try {
-//     final messaging = FirebaseMessaging.instance;
-//     NotificationSettings settings = await messaging.requestPermission(
-//       alert: true,
-//       announcement: false,
-//       badge: true,
-//       carPlay: false,
-//       criticalAlert: false,
-//       provisional: false,
-//       sound: true,
-//     );
-//     print('User granted permission: ${settings.authorizationStatus}');
-//   } on PlatformException catch (e) {
-//     print(
-//         'PlatformException when requesting notification permissions: ${e.message}');
-//   } catch (e) {
-//     print('Error requesting notification permissions: $e');
-//     if (e is MissingPluginException) {
-//       print('MissingPluginException details: ${e.message}');
-//     }
-//   }
-// }
-// Future<void> _requestNotificationPermissions() async {
-//   try {
-//     final messaging = FirebaseMessaging.instance;
-//     await messaging.requestPermission();
-//     print('Notification permissions granted');
-//   } catch (e) {
-//     print('Failed to request notification permissions: $e');
-//   }
-// }
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
     await Firebase.initializeApp();
     print('Firebase Core initialized successfully');
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    final messaging = FirebaseMessaging.instance;
-    print('FirebaseMessaging instance created');
-
-    try {
-      NotificationSettings settings = await messaging.requestPermission(
-        alert: true,
-        announcement: false,
-        badge: true,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-        sound: true,
-      );
-      print('User granted permission: ${settings.authorizationStatus}');
-    } catch (e) {
-      print('Error requesting notification permissions: $e');
-    }
-
-    try {
-      String? fcmToken = await messaging.getToken();
-      print('FCM Token: $fcmToken');
-    } catch (e) {
-      print('Error getting FCM token: $e');
-    }
-
-    // Set the Firebase Functions instance to use the asia-south1 region
+    await _initializeFirebaseMessaging();
     FirebaseFunctions.instanceFor(region: 'asia-south1');
 
     final authProvider = app_auth.AuthProvider();
+    final notificationProvider = NotificationProvider();
+    final inventoryProvider = InventoryProvider();
 
     runApp(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider<NotificationProvider>(
-            create: (context) => NotificationProvider(),
-          ),
-          ChangeNotifierProvider<InventoryProvider>(
-              create: (_) => InventoryProvider()),
+          ChangeNotifierProvider(create: (_) => LocationProvider()),
+          ChangeNotifierProvider<NotificationProvider>.value(
+              value: notificationProvider),
           ChangeNotifierProvider<app_auth.AuthProvider>.value(
               value: authProvider),
+          ChangeNotifierProvider<InventoryProvider>.value(
+              value: inventoryProvider),
           ChangeNotifierProvider<RequestProvider>(
-            create: (context) {
-              final provider = RequestProvider();
-              provider.setContext(context);
-              return provider;
-            },
+            create: (context) => RequestProvider(
+              notificationProvider,
+              inventoryProvider,
+            ),
           ),
         ],
         child: MyApp(),
@@ -162,6 +85,24 @@ Future<void> main() async {
   } catch (e, stackTrace) {
     print('Error during app initialization: $e');
     print('Stack trace: $stackTrace');
+    runApp(ErrorApp(error: e.toString()));
+  }
+}
+
+class ErrorApp extends StatelessWidget {
+  final String error;
+
+  const ErrorApp({Key? key, required this.error}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Text('An error occurred during app initialization: $error'),
+        ),
+      ),
+    );
   }
 }
 
@@ -197,48 +138,12 @@ Future<void> _requestNotificationPermissions() async {
     }
   }
 }
-// void main() async {
-//   WidgetsFlutterBinding.ensureInitialized();
-//   await Firebase.initializeApp();
-
-//   // Request permission for iOS devices
-//   await _initializeFirebase();
-//   await _requestNotificationPermissions();
-//   // Set the Firebase Functions instance to use the asia-south1 region
-//   // FirebaseFunctions.instance.useFunctionsEmulator('localhost', 5001);
-//   FirebaseFunctions.instanceFor(region: 'asia-south1');
-
-//   final authProvider = app_auth.AuthProvider();
-
-//   runApp(
-//     MultiProvider(
-//       providers: [
-//         ChangeNotifierProvider<NotificationProvider>(
-//           create: (context) => NotificationProvider(),
-//         ),
-//         ChangeNotifierProvider<InventoryProvider>(
-//             create: (_) => InventoryProvider()),
-//         ChangeNotifierProvider<app_auth.AuthProvider>.value(
-//             value: authProvider),
-//         ChangeNotifierProvider<RequestProvider>(
-//           create: (context) {
-//             final provider = RequestProvider();
-//             provider.setContext(context);
-//             return provider;
-//           },
-//         ),
-//         // ChangeNotifierProvider<RequestProvider>(
-//         //     create: (_) => RequestProvider()),
-//       ],
-//       child: MyApp(),
-//     ),
-//   );
-// }
 
 class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey, // Add this line
       title: 'Inventory Management',
       theme: ThemeData(
         primarySwatch: Colors.blue,
@@ -281,9 +186,109 @@ class MyApp extends StatelessWidget {
             AdminManageStockRequestsScreen(),
         '/edit_profile': (context) => EditProfileScreen(),
         '/manager_stock_request': (context) => ManagerStockRequestScreen(),
-        // '/otp_login': (context) => OTPLoginScreen(),
+        '/notification_test': (context) => NotificationTestScreen(),
+        '/request_details': (context) => RequestDetailsScreen(
+              requestId: ModalRoute.of(context)!.settings.arguments as String,
+              isStockRequest:
+                  false, // You might need to determine this based on the notification data
+            ),
+        '/account_deletion_requests': (context) =>
+            AccountDeletionRequestsScreen(),
+        '/manage_locations': (context) => ManageLocationsScreen(),
       },
     );
+  }
+}
+
+Future<void> _initializeFirebaseMessaging() async {
+  final messaging = FirebaseMessaging.instance;
+  RemoteMessage? initialMessage =
+      await FirebaseMessaging.instance.getInitialMessage();
+  if (initialMessage != null) {
+    _handleNotificationTap(initialMessage.data);
+  }
+
+  try {
+    NotificationSettings settings = await messaging.requestPermission(
+      alert: true,
+      announcement: false,
+      badge: true,
+      carPlay: false,
+      criticalAlert: false,
+      provisional: false,
+      sound: true,
+    );
+    print('User granted permission: ${settings.authorizationStatus}');
+
+    String? token = await messaging.getToken();
+    print('FCM Token: $token');
+
+    if (token != null) {
+      await _saveTokenToDatabase(token);
+    }
+
+    // Listen for token refresh
+    messaging.onTokenRefresh.listen(_saveTokenToDatabase);
+
+    // Handle incoming messages when the app is in the foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print("Handling a foreground message: ${message.messageId}");
+      // Show a local notification or update the UI
+    });
+
+    // Handle notification taps when the app is in the background or terminated
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      print("Notification tapped: ${message.messageId}");
+      // Navigate to the appropriate screen based on the notification data
+      _handleNotificationTap(message.data);
+    });
+
+    // Check if the app was opened from a notification when it was terminated
+    RemoteMessage? initialMessage =
+        await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      _handleNotificationTap(initialMessage.data);
+    }
+  } catch (e) {
+    print('Error initializing Firebase Messaging: $e');
+  }
+}
+
+void _handleNotificationTap(Map<String, dynamic> messageData) {
+  print("Handling notification tap with data: $messageData");
+  if (messageData['requestId'] != null) {
+    final bool isStockRequest = messageData['isStockRequest'] == 'true';
+    navigatorKey.currentState?.pushNamed(
+      '/request_details',
+      arguments: {
+        'requestId': messageData['requestId'],
+        'isStockRequest': isStockRequest,
+      },
+    );
+  } else if (messageData['notificationType'] != null) {
+    switch (messageData['notificationType']) {
+      case 'newRequest':
+        navigatorKey.currentState?.pushNamed('/manage_requests');
+        break;
+      case 'inventoryUpdate':
+        navigatorKey.currentState?.pushNamed('/manage_inventory');
+        break;
+      // Add more cases as needed for different notification types
+      default:
+        print("Unknown notification type: ${messageData['notificationType']}");
+    }
+  } else {
+    print("No specific action for this notification");
+  }
+}
+
+Future<void> _saveTokenToDatabase(String token) async {
+  final userId = FirebaseAuth.instance.currentUser?.uid;
+  if (userId != null) {
+    await FirebaseFirestore.instance.collection('users').doc(userId).set({
+      'fcmToken': token,
+    }, SetOptions(merge: true));
+    print('FCM Token saved to database for user: $userId');
   }
 }
 
@@ -332,22 +337,35 @@ class HomeScreen extends StatelessWidget {
     final authProvider = Provider.of<app_auth.AuthProvider>(context);
     final role = authProvider.role;
 
+    Widget dashboard;
     switch (role) {
       case 'Admin':
-        return AdminDashboardScreen();
+        dashboard = AdminDashboardScreen();
+        break;
       case 'Manager':
-        return ManagerDashboard();
+        dashboard = ManagerDashboard();
+        break;
       case 'Gate Man':
-        return GateManDashboard();
+        dashboard = GateManDashboard();
+        break;
       case 'User':
-        return UserDashboard();
+        dashboard = UserDashboard();
+        break;
       default:
-        // Handle unexpected role or no role assigned
-        return Scaffold(
-          body: Center(
-            child: Text('Unexpected role: $role. Please contact support.'),
-          ),
-        );
+        dashboard = _buildUnexpectedRoleScreen(role);
     }
+
+    return Scaffold(
+      body: dashboard,
+    );
+  }
+
+  Widget _buildUnexpectedRoleScreen(String? role) {
+    return Scaffold(
+      body: Center(
+        child: Text('Unexpected role: $role. Please contact support.'),
+      ),
+    );
   }
 }
+

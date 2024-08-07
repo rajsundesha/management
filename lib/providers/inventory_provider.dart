@@ -1,10 +1,17 @@
+
+
+
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';
+import 'dart:math' as math;
 
 class InventoryProvider with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   List<Map<String, dynamic>> _items = [];
   bool _isLoading = false;
+  bool _isAdminOrManager = false;
 
   InventoryProvider() {
     fetchItems(); // Fetch items when the provider is created
@@ -21,7 +28,7 @@ class InventoryProvider with ChangeNotifier {
     return _firestore.collection('inventory').snapshots();
   }
 
-  Future<void> fetchItems() async {
+  Future<void> fetchItems({bool? isAdminOrManager}) async {
     if (_isLoading) return;
     _isLoading = true;
     notifyListeners();
@@ -32,9 +39,19 @@ class InventoryProvider with ChangeNotifier {
       _items = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
-        print("Fetched item: $data");
         return data;
       }).toList();
+
+      // Use the passed isAdminOrManager if provided, otherwise use the stored value
+      bool adminManagerStatus = isAdminOrManager ?? _isAdminOrManager;
+
+      if (!adminManagerStatus) {
+        _items = _items
+            .where((item) =>
+                !(item['isHidden'] == true || item['isDeadstock'] == true))
+            .toList();
+      }
+
       print("Fetched items, count: ${_items.length}");
     } catch (e) {
       print("Error fetching inventory items: $e");
@@ -44,16 +61,31 @@ class InventoryProvider with ChangeNotifier {
     }
   }
 
-  Future<void> refreshItems() async {
-    await fetchItems();
+  Future<void> refreshItems({bool? isAdminOrManager}) async {
+    await fetchItems(isAdminOrManager: isAdminOrManager);
   }
 
-  // Add back the getItemsByCategory method
-  List<Map<String, dynamic>> getItemsByCategory(String category) {
+  void setAdminOrManagerStatus(bool status) {
+    _isAdminOrManager = status;
+    fetchItems(); // Refetch items when the status changes
+  }
+  
+  List<Map<String, dynamic>> getItemsByCategory(String category,
+      {bool isAdminOrManager = false}) {
     if (category == 'All') {
-      return _items;
+      return isAdminOrManager
+          ? _items
+          : _items
+              .where((item) =>
+                  !(item['isHidden'] == true || item['isDeadstock'] == true))
+              .toList();
     }
-    return _items.where((item) => item['category'] == category).toList();
+    return _items
+        .where((item) =>
+            item['category'] == category &&
+            (isAdminOrManager ||
+                !(item['isHidden'] == true || item['isDeadstock'] == true)))
+        .toList();
   }
 
   List<Map<String, dynamic>> getFilteredItems({
@@ -62,7 +94,7 @@ class InventoryProvider with ChangeNotifier {
     String subcategory = 'All',
     String stockStatus = 'All',
     RangeValues quantityRange = const RangeValues(0, double.infinity),
-    List<String> hashtags = const [],
+    bool isAdminOrManager = false,
   }) {
     return _items.where((item) {
       bool matchesSearch = item['name']
@@ -78,20 +110,27 @@ class InventoryProvider with ChangeNotifier {
           (stockStatus == 'In Stock' && item['quantity'] >= item['threshold']);
       bool matchesQuantityRange = item['quantity'] >= quantityRange.start &&
           item['quantity'] <= quantityRange.end;
-      bool matchesHashtags = hashtags.isEmpty ||
-          hashtags.any((tag) => item['hashtag'].toString().contains(tag));
+      bool isVisible = isAdminOrManager ||
+          !(item['isHidden'] == true || item['isDeadstock'] == true);
 
       return matchesSearch &&
           matchesCategory &&
           matchesSubcategory &&
           matchesStockStatus &&
           matchesQuantityRange &&
-          matchesHashtags;
+          isVisible;
     }).toList();
   }
 
   Future<void> addItem(Map<String, dynamic> item) async {
     try {
+      if (item['isPipe'] == true) {
+        item['quantity'] = (item['quantity'] as num).toDouble();
+        item['pipeLength'] = (item['pipeLength'] as num?)?.toDouble() ?? 20.0;
+        item['unit'] = 'pcs'; // Ensure unit is set to 'pcs' for pipes
+      }
+      item['isHidden'] = item['isHidden'] ?? false;
+      item['isDeadstock'] = item['isDeadstock'] ?? false;
       DocumentReference docRef =
           await _firestore.collection('inventory').add(item);
       item['id'] = docRef.id;
@@ -106,6 +145,11 @@ class InventoryProvider with ChangeNotifier {
 
   Future<void> updateItem(String id, Map<String, dynamic> item) async {
     try {
+      if (item['isPipe'] == true) {
+        item['quantity'] = (item['quantity'] as num).toDouble();
+        item['pipeLength'] = (item['pipeLength'] as num?)?.toDouble() ?? 20.0;
+        item['unit'] = 'pcs'; // Ensure unit is set to 'pcs' for pipes
+      }
       await _firestore.collection('inventory').doc(id).update(item);
       int index = _items.indexWhere((existingItem) => existingItem['id'] == id);
       if (index != -1) {
@@ -115,6 +159,49 @@ class InventoryProvider with ChangeNotifier {
       print("Item updated successfully");
     } catch (e) {
       print("Error updating item: $e");
+      rethrow;
+    }
+  }
+
+  Future<void> updateInventoryQuantity(String itemId, double quantityChange,
+      {String? unit}) async {
+    try {
+      DocumentReference docRef = _firestore.collection('inventory').doc(itemId);
+      await _firestore.runTransaction((transaction) async {
+        DocumentSnapshot snapshot = await transaction.get(docRef);
+        if (snapshot.exists) {
+          Map<String, dynamic> data = snapshot.data() as Map<String, dynamic>;
+          double currentQuantity = (data['quantity'] as num).toDouble();
+          bool isPipe = data['isPipe'] as bool? ?? false;
+          double pipeLength = (data['pipeLength'] as num?)?.toDouble() ?? 1.0;
+
+          double newQuantity;
+          if (isPipe && unit == 'meters') {
+            // Convert meters to pieces
+            double piecesChange = quantityChange / pipeLength;
+            newQuantity = currentQuantity - piecesChange;
+          } else {
+            newQuantity = currentQuantity - quantityChange;
+          }
+
+          // Ensure quantity doesn't go below zero
+          newQuantity = math.max(0, newQuantity);
+
+          transaction.update(docRef, {'quantity': newQuantity});
+
+          // Update local state
+          int index = _items.indexWhere((item) => item['id'] == itemId);
+          if (index != -1) {
+            _items[index]['quantity'] = newQuantity;
+          }
+        } else {
+          throw Exception('Inventory item not found');
+        }
+      });
+      notifyListeners();
+      print("Inventory quantity updated successfully for item $itemId");
+    } catch (e) {
+      print("Error updating inventory quantity: $e");
       rethrow;
     }
   }
@@ -136,57 +223,5 @@ class InventoryProvider with ChangeNotifier {
       rethrow;
     }
   }
-//   Future<void> updateInventoryQuantity(
-//       String itemId, int quantityChange) async {
-//     try {
-//       DocumentReference docRef = _firestore.collection('inventory').doc(itemId);
-//       await _firestore.runTransaction((transaction) async {
-//         DocumentSnapshot snapshot = await transaction.get(docRef);
-//         if (snapshot.exists) {
-//           int currentQuantity = snapshot.get('quantity') as int;
-//           int newQuantity = currentQuantity + quantityChange;
-//           transaction.update(docRef, {'quantity': newQuantity});
 
-//           // Update local state
-//           int index = _items.indexWhere((item) => item['id'] == itemId);
-//           if (index != -1) {
-//             _items[index]['quantity'] = newQuantity;
-//           }
-//         }
-//       });
-//       notifyListeners();
-//       print("Inventory quantity updated successfully for item $itemId");
-//     } catch (e) {
-//       print("Error updating inventory quantity: $e");
-//       rethrow;
-//     }
-//   }
-// }
-  Future<void> updateInventoryQuantity(
-      String itemId, int quantityChange) async {
-    try {
-      DocumentReference docRef = _firestore.collection('inventory').doc(itemId);
-      await _firestore.runTransaction((transaction) async {
-        DocumentSnapshot snapshot = await transaction.get(docRef);
-        if (snapshot.exists) {
-          int currentQuantity = snapshot.get('quantity') as int;
-          int newQuantity = currentQuantity + quantityChange;
-          transaction.update(docRef, {'quantity': newQuantity});
-
-          // Update local state
-          int index = _items.indexWhere((item) => item['id'] == itemId);
-          if (index != -1) {
-            _items[index]['quantity'] = newQuantity;
-          }
-        } else {
-          throw Exception('Inventory item not found');
-        }
-      });
-      notifyListeners();
-      print("Inventory quantity updated successfully for item $itemId");
-    } catch (e) {
-      print("Error updating inventory quantity: $e");
-      rethrow;
-    }
-  }
 }

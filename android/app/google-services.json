@@ -1,10 +1,27 @@
 {
   "project_info": {
     "project_number": "659070244201",
+    "firebase_url": "https://dhavla-2024-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "dhavla-2024",
     "storage_bucket": "dhavla-2024.appspot.com"
   },
-  "client": [
+  "client": [{
+      "client_info": {
+        "mobilesdk_app_id": "1:659070244201:android:22eb66192595f9409459f8",
+        "android_client_info": {
+          "package_name": "com.liffytech.dhavla_road_project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [{
+        "current_key": "AIzaSyBPCuISZRpABF0vgSwI1L02A-wa1WVVeyo"
+      }],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
     {
       "client_info": {
         "mobilesdk_app_id": "1:659070244201:android:22f8768b99c86b2e9459f8",
@@ -13,11 +30,9 @@
         }
       },
       "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyBPCuISZRpABF0vgSwI1L02A-wa1WVVeyo"
-        }
-      ],
+      "api_key": [{
+        "current_key": "AIzaSyBPCuISZRpABF0vgSwI1L02A-wa1WVVeyo"
+      }],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": []

@@ -23,39 +23,668 @@ if (flutterVersionCode == null) {
 
 def flutterVersionName = localProperties.getProperty("flutter.versionName")
 if (flutterVersionName == null) {
-    flutterVersionName = "1.0"
+    flutterVersionName = "1.1"
 }
 
 android {
-    namespace = "com.example.dhavla_road_project"
+    namespace = "com.liffytech.dhavla_road_project"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
-
+    ndkVersion "26.1.10909125"
+    
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+        coreLibraryDesugaringEnabled true
     }
+
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.dhavla_road_project"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdk = flutter.minSdkVersion
+        applicationId = "com.liffytech.dhavla_road_project"
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutterVersionCode.toInteger()
+        // versionCode = flutterVersionCode.toInteger()
+        versionCode = 4
         versionName = flutterVersionName
+        multiDexEnabled true
     }
 
+  signingConfigs {
+        release {
+            keyAlias 'my-key-alias'
+            keyPassword 'raj@2404'
+            storeFile file('/Users/rajsundesha/dhavla-release-key.jks')
+            storePassword 'raj@2404'
+        }
+    }
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+
+    // buildTypes {
+    //     release {
+    //         signingConfig = signingConfigs.debug
+    //     }
+    // }
+
+    // Add this block to enable deprecation warnings
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:deprecation"
     }
 }
 
 flutter {
     source = "../.."
 }
+
+dependencies {
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'
+    implementation 'androidx.multidex:multidex:2.0.1'
+        implementation 'androidx.window:window:1.0.0'
+    implementation 'androidx.window:window-java:1.0.0'
+}
+// plugins {
+//     id "com.android.application"
+//     // START: FlutterFire Configuration
+//     id 'com.google.gms.google-services'
+//     // END: FlutterFire Configuration
+//     id "kotlin-android"
+//     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace = "com.example.dhavla_road_project"
+//     compileSdk = flutter.compileSdkVersion
+//     ndkVersion "26.1.10909125"
+    
+//     compileOptions {
+//         sourceCompatibility JavaVersion.VERSION_1_8
+//         targetCompatibility JavaVersion.VERSION_1_8
+//         coreLibraryDesugaringEnabled true
+//     }
+
+//     defaultConfig {
+//         applicationId = "com.example.dhavla_road_project"
+//         minSdk = 23
+//         targetSdk = flutter.targetSdkVersion
+//         versionCode = flutterVersionCode.toInteger()
+//         versionName = flutterVersionName
+//         multiDexEnabled true
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig = signingConfigs.debug
+//         }
+//     }
+
+//     // Add this block to enable deprecation warnings
+//     tasks.withType(JavaCompile) {
+//         options.compilerArgs << "-Xlint:deprecation"
+//     }
+// }
+
+// flutter {
+//     source = "../.."
+// }
+
+// dependencies {
+//     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2'
+//     implementation 'androidx.multidex:multidex:2.0.1'
+// }
+// plugins {
+//     id "com.android.application"
+//     // START: FlutterFire Configuration
+//     id 'com.google.gms.google-services'
+//     // END: FlutterFire Configuration
+//     id "kotlin-android"
+//     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace = "com.example.dhavla_road_project"
+//     compileSdk = flutter.compileSdkVersion
+//     ndkVersion "26.1.10909125"
+    
+//     compileOptions {
+//         sourceCompatibility = JavaVersion.VERSION_1_8
+//         targetCompatibility = JavaVersion.VERSION_1_8
+//         coreLibraryDesugaringEnabled true
+//     }
+
+//     defaultConfig {
+//         applicationId = "com.example.dhavla_road_project"
+//         minSdk = 23
+//         targetSdk = flutter.targetSdkVersion
+//         versionCode = flutterVersionCode.toInteger()
+//         versionName = flutterVersionName
+//         multiDexEnabled true
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig = signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source = "../.."
+// }
+
+// dependencies {
+//     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.2.2' // Updated version
+//     implementation 'androidx.multidex:multidex:2.0.1'
+// }
+// plugins {
+//     id "com.android.application"
+//     // START: FlutterFire Configuration
+//     id 'com.google.gms.google-services'
+//     // END: FlutterFire Configuration
+//     id "kotlin-android"
+//     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace = "com.example.dhavla_road_project"
+//     compileSdk = flutter.compileSdkVersion
+//     ndkVersion "26.1.10909125"
+    
+//     compileOptions {
+//         sourceCompatibility = JavaVersion.VERSION_1_8
+//         targetCompatibility = JavaVersion.VERSION_1_8
+//         // Add this line to enable core library desugaring
+//         coreLibraryDesugaringEnabled true
+//     }
+
+//     defaultConfig {
+//         applicationId = "com.example.dhavla_road_project"
+//         minSdk = 23
+//         targetSdk = flutter.targetSdkVersion
+//         versionCode = flutterVersionCode.toInteger()
+//         versionName = flutterVersionName
+//         // Add this line to enable multidex
+//         multiDexEnabled true
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig = signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source = "../.."
+// }
+
+// // Add this dependencies block
+// dependencies {
+//     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.1.5'
+//     implementation 'androidx.multidex:multidex:2.0.1'
+// }
+// plugins {
+//     id "com.android.application"
+//     // START: FlutterFire Configuration
+//     id 'com.google.gms.google-services'
+//     // END: FlutterFire Configuration
+//     id "kotlin-android"
+//     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace = "com.example.dhavla_road_project"
+//     compileSdk = flutter.compileSdkVersion
+//     // ndkVersion = flutter.ndkVersion
+//     ndkVersion "26.1.10909125"
+//     compileOptions {
+//         sourceCompatibility = JavaVersion.VERSION_1_8
+//         targetCompatibility = JavaVersion.VERSION_1_8
+//     }
+
+//     defaultConfig {
+//         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+//         applicationId = "com.example.dhavla_road_project"
+//         // You can update the following values to match your application needs.
+//         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
+//         minSdk = 23
+//         targetSdk = flutter.targetSdkVersion
+//         versionCode = flutterVersionCode.toInteger()
+//         versionName = flutterVersionName
+//     }
+
+//     buildTypes {
+//         release {
+//             // TODO: Add your own signing config for the release build.
+//             // Signing with the debug keys for now, so `flutter run --release` works.
+//             signingConfig = signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source = "../.."
+// }
+
+// plugins {
+//     id "com.android.application"
+//     id "kotlin-android"
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace "com.example.dhavla_road_project"
+//     compileSdkVersion 34
+//     ndkVersion "26.1.10909125"
+
+//     compileOptions {
+//         sourceCompatibility JavaVersion.VERSION_1_8
+//         targetCompatibility JavaVersion.VERSION_1_8
+//     }
+
+//     kotlinOptions {
+//         jvmTarget = '1.8'
+//     }
+
+ 
+
+//     defaultConfig {
+//         applicationId "com.example.dhavla_road_project"
+//         minSdkVersion 21
+//         targetSdkVersion 34
+//         versionCode flutterVersionCode.toInteger()
+//         versionName flutterVersionName
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source '../..'
+// }
+
+// dependencies {
+//     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+//     implementation platform('com.google.firebase:firebase-bom:33.1.2')
+//     implementation 'com.google.firebase:firebase-messaging'
+//     implementation 'com.google.firebase:firebase-analytics'
+//     implementation 'com.google.firebase:firebase-auth'
+// }
+
+// apply plugin: 'com.google.gms.google-services'
+
+// plugins {
+//     id "com.android.application"
+//     id "kotlin-android"
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace "com.example.dhavla_road_project"
+//     compileSdkVersion 34
+//     ndkVersion "26.1.10909125"
+
+//     compileOptions {
+//         sourceCompatibility JavaVersion.VERSION_1_8
+//         targetCompatibility JavaVersion.VERSION_1_8
+//     }
+
+//     kotlinOptions {
+//         jvmTarget = '1.8'
+//     }
+
+//     defaultConfig {
+//         applicationId "com.example.dhavla_road_project"
+//         minSdkVersion 21
+//         targetSdkVersion 34
+//         versionCode flutterVersionCode.toInteger()
+//         versionName flutterVersionName
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source '../..'
+// }
+
+// dependencies {
+//     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+//     implementation platform('com.google.firebase:firebase-bom:33.1.2')
+//     implementation 'com.google.firebase:firebase-messaging'
+//     implementation 'com.google.firebase:firebase-analytics'
+//     implementation 'com.google.firebase:firebase-auth'
+// }
+
+// apply plugin: 'com.google.gms.google-services'
+// plugins {
+//     id "com.android.application"
+//     id "kotlin-android"
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace "com.example.dhavla_road_project"
+//     compileSdkVersion 34
+//     ndkVersion "26.1.10909125"
+
+//     compileOptions {
+//         sourceCompatibility JavaVersion.VERSION_1_8
+//         targetCompatibility JavaVersion.VERSION_1_8
+//     }
+
+//     kotlinOptions {
+//         jvmTarget = '1.8'
+//     }
+
+//     defaultConfig {
+//         applicationId "com.example.dhavla_road_project"
+//         minSdkVersion 21
+//         targetSdkVersion 34
+//         versionCode flutterVersionCode.toInteger()
+//         versionName flutterVersionName
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source '../..'
+// }
+
+// dependencies {
+//     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+//     implementation platform('com.google.firebase:firebase-bom:33.1.2')
+//     implementation 'com.google.firebase:firebase-messaging'
+//     implementation 'com.google.firebase:firebase-analytics'
+//     implementation 'com.google.firebase:firebase-auth'
+// }
+
+// apply plugin: 'com.google.gms.google-services'
+
+// plugins {
+//     id "com.android.application"
+//     id "kotlin-android"
+//     id "dev.flutter.flutter-gradle-plugin"
+// }
+
+// def localProperties = new Properties()
+// def localPropertiesFile = rootProject.file("local.properties")
+// if (localPropertiesFile.exists()) {
+//     localPropertiesFile.withReader("UTF-8") { reader ->
+//         localProperties.load(reader)
+//     }
+// }
+
+// def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// if (flutterVersionCode == null) {
+//     flutterVersionCode = "1"
+// }
+
+// def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// if (flutterVersionName == null) {
+//     flutterVersionName = "1.0"
+// }
+
+// android {
+//     namespace "com.example.dhavla_road_project"
+//     // compileSdkVersion flutter.compileSdkVersion
+//     compileSdkVersion 34
+
+// //    ndkVersion flutter.ndkVersion
+//     ndkVersion "26.1.10909125"
+
+
+//     compileOptions {
+//         sourceCompatibility JavaVersion.VERSION_1_8
+//         targetCompatibility JavaVersion.VERSION_1_8
+//     }
+
+//     kotlinOptions {
+//         jvmTarget = '1.8'
+//     }
+
+//     defaultConfig {
+//         applicationId "com.example.dhavla_road_project"
+//         minSdkVersion 21
+//         // targetSdkVersion flutter.targetSdkVersion
+//         targetSdkVersion 34
+//         versionCode flutterVersionCode.toInteger()
+//         versionName flutterVersionName
+//     }
+
+//     buildTypes {
+//         release {
+//             signingConfig signingConfigs.debug
+//         }
+//     }
+// }
+
+// flutter {
+//     source '../..'
+// }
+
+// dependencies {
+//     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+//     implementation platform('com.google.firebase:firebase-bom:33.1.2')
+//     implementation 'com.google.firebase:firebase-messaging'
+//     implementation 'com.google.firebase:firebase-analytics'
+//     implementation 'com.google.firebase:firebase-auth'
+// }
+
+// apply plugin: 'com.google.gms.google-services'
+// // plugins {
+// //     id "com.android.application"
+// //     // START: FlutterFire Configuration
+// //     id 'com.google.gms.google-services'
+// //     // END: FlutterFire Configuration
+// //     id "kotlin-android"
+// //     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+// //     id "dev.flutter.flutter-gradle-plugin"
+// // }
+
+// // def localProperties = new Properties()
+// // def localPropertiesFile = rootProject.file("local.properties")
+// // if (localPropertiesFile.exists()) {
+// //     localPropertiesFile.withReader("UTF-8") { reader ->
+// //         localProperties.load(reader)
+// //     }
+// // }
+
+// // def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+// // if (flutterVersionCode == null) {
+// //     flutterVersionCode = "1"
+// // }
+
+// // def flutterVersionName = localProperties.getProperty("flutter.versionName")
+// // if (flutterVersionName == null) {
+// //     flutterVersionName = "1.0"
+// // }
+
+// // android {
+// //     namespace = "com.example.dhavla_road_project"
+// //     compileSdk = flutter.compileSdkVersion
+// //     ndkVersion = flutter.ndkVersion
+
+// //     compileOptions {
+// //         sourceCompatibility = JavaVersion.VERSION_1_8
+// //         targetCompatibility = JavaVersion.VERSION_1_8
+// //     }
+
+// //     defaultConfig {
+// //         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+// //         applicationId = "com.example.dhavla_road_project"
+// //         // You can update the following values to match your application needs.
+// //         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
+// //         minSdk = 23
+// //         // flutter.minSdkVersion
+// //         targetSdk = flutter.targetSdkVersion
+// //         versionCode = flutterVersionCode.toInteger()
+// //         versionName = flutterVersionName
+// //     }
+
+// //     buildTypes {
+// //         release {
+// //             // TODO: Add your own signing config for the release build.
+// //             // Signing with the debug keys for now, so `flutter run --release` works.
+// //             signingConfig = signingConfigs.debug
+// //         }
+// //     }
+// // }
+
+// // flutter {
+// //     source = "../.."
+// // }
+// // dependencies {
+// //     implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+// //     implementation platform('com.google.firebase:firebase-bom:33.1.2') // Use the latest stable version of Firebase BOM
+// //     implementation 'com.google.firebase:firebase-messaging'
+// //     implementation 'com.google.firebase:firebase-analytics'
+// //     implementation 'com.google.firebase:firebase-auth' // Add other Firebase dependencies as needed
+// // }

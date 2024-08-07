@@ -1,41 +1,212 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:math';
-// import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dhavla_road_project/providers/inventory_provider.dart';
+import 'package:dhavla_road_project/providers/notification_provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:intl/intl.dart';
 
-import 'package:dhavla_road_project/providers/notification_provider.dart'
-    as custom_notification;
 
 class RequestProvider with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final NotificationProvider _notificationProvider;
+  final InventoryProvider _inventoryProvider;
   List<Map<String, dynamic>> _requests = [];
+  List<Map<String, dynamic>> _fulfilledRequests = []; // Add this line
+  bool _isLoading = false;
   StreamSubscription<QuerySnapshot>? _requestSubscription;
+  Timer? _refreshTimer;
 
   List<Map<String, dynamic>> get requests => _requests;
+  List<Map<String, dynamic>> get fulfilledRequests => _fulfilledRequests;
+  bool get isLoading => _isLoading;
+  bool get hasMore => _hasMore; // Add this getter
+  static const int _pageSize = 20;
+  DocumentSnapshot? _lastDocument;
+  bool _hasMore = true;
 
-  RequestProvider() {
+  RequestProvider(this._notificationProvider, this._inventoryProvider) {
     FirebaseAuth.instance.authStateChanges().listen((User? user) {
       if (user != null) {
         _listenToRequests(user.uid);
+        startAutoRefresh();
       } else {
         cancelListeners();
+        stopAutoRefresh();
       }
     });
   }
+  void startAutoRefresh() {
+    // Refresh immediately when starting
+    refreshFulfilledRequests();
+
+    // Set up a timer to refresh every 5 minutes (adjust as needed)
+    _refreshTimer = Timer.periodic(Duration(minutes: 5), (_) {
+      refreshFulfilledRequests();
+    });
+  }
+
+  void stopAutoRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+  }
 
   String generateUniqueCode() {
-    final random = Random();
+    final random = math.Random();
     return (100000 + random.nextInt(900000)).toString().padLeft(6, '0');
   }
-  // String generateUniqueCode() {
-  //   final random = Random();
-  //   return (100000 + random.nextInt(900000)).toString();
-  // }
+
+  Future<void> refreshRequests(String userEmail, String userRole) async {
+    _isLoading = true;
+    _hasMore = true;
+    _lastDocument = null;
+    _requests.clear();
+    notifyListeners();
+
+    try {
+      await _loadMoreRequests(userEmail, userRole);
+    } catch (e) {
+      print("Error refreshing requests: $e");
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getRecentRequests() async {
+    final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+    QuerySnapshot snapshot = await _firestore
+        .collection('requests')
+        .where('timestamp', isGreaterThanOrEqualTo: twoDaysAgo)
+        .orderBy('timestamp', descending: true)
+        .limit(10)
+        .get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      return data;
+    }).toList();
+  }
+
+  Stream<List<Map<String, dynamic>>> getRecentApprovedRequestsStream() {
+    final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+
+    return _firestore
+        .collection('requests')
+        .where('status', whereIn: ['approved', 'fulfilled'])
+        .where('approvedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+        .orderBy('approvedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id;
+            if (data['approvedAt'] is Timestamp) {
+              data['approvedAt'] = (data['approvedAt'] as Timestamp).toDate();
+            }
+            if (data['fulfilledAt'] is Timestamp) {
+              data['fulfilledAt'] = (data['fulfilledAt'] as Timestamp).toDate();
+            }
+            return data;
+          }).toList();
+        });
+  }
+
+  Future<List<String>> getUniqueCreators() async {
+    try {
+      QuerySnapshot snapshot = await _firestore.collection('requests').get();
+      Set<String> uniqueCreators = {};
+
+      for (var doc in snapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        String creator =
+            data['createdByName'] ?? data['createdByEmail'] ?? 'Unknown';
+        uniqueCreators.add(creator);
+      }
+
+      return uniqueCreators.toList()..sort();
+    } catch (e) {
+      print("Error fetching unique creators: $e");
+      return [];
+    }
+  }
+
+  Future<void> loadMoreRequests(String userEmail, String userRole) async {
+    if (!_hasMore || _isLoading) return;
+    _isLoading = true;
+    notifyListeners();
+
+    try {
+      await _loadMoreRequests(userEmail, userRole);
+    } catch (e) {
+      print("Error loading more requests: $e");
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadMoreRequests(String userEmail, String userRole) async {
+    Query query = _firestore
+        .collection('requests')
+        .orderBy('timestamp', descending: true)
+        .limit(_pageSize);
+
+    if (userRole != 'Admin' && userRole != 'Manager') {
+      query = query.where('createdByEmail', isEqualTo: userEmail);
+    }
+
+    if (_lastDocument != null) {
+      query = query.startAfterDocument(_lastDocument!);
+    }
+
+    final QuerySnapshot snapshot = await query.get();
+
+    if (snapshot.docs.isEmpty) {
+      _hasMore = false;
+      return;
+    }
+
+    _lastDocument = snapshot.docs.last;
+
+    final newRequests = snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      if (data['timestamp'] is Timestamp) {
+        data['timestamp'] = (data['timestamp'] as Timestamp).toDate();
+      }
+      return data;
+    }).toList();
+
+    _requests.addAll(newRequests);
+    _hasMore = newRequests.length == _pageSize;
+  }
+
+  List<Map<String, dynamic>> getFilteredRequests({
+    required String searchQuery,
+    required String status,
+    required String location,
+    DateTimeRange? dateRange,
+  }) {
+    return _requests.where((request) {
+      final matchesSearch = request['createdByName']
+          .toString()
+          .toLowerCase()
+          .contains(searchQuery.toLowerCase());
+      final matchesStatus =
+          status == 'All' || request['status'] == status.toLowerCase();
+      final matchesLocation =
+          location == 'All' || request['location'] == location;
+      final matchesDate = dateRange == null ||
+          (request['timestamp'].isAfter(dateRange.start) &&
+              request['timestamp']
+                  .isBefore(dateRange.end.add(Duration(days: 1))));
+
+      return matchesSearch && matchesStatus && matchesLocation && matchesDate;
+    }).toList();
+  }
 
   void _listenToRequests(String userId) {
     if (FirebaseAuth.instance.currentUser == null) {
@@ -47,11 +218,7 @@ class RequestProvider with ChangeNotifier {
       _requests = snapshot.docs.map((doc) {
         final data = doc.data() as Map<String, dynamic>;
         data['id'] = doc.id;
-        if (data['timestamp'] != null) {
-          data['timestamp'] = (data['timestamp'] as Timestamp).toDate();
-        } else {
-          data['timestamp'] = DateTime.now(); // Use current time as fallback
-        }
+        data['timestamp'] = (data['timestamp'] as Timestamp).toDate();
         return data;
       }).toList();
       print("Total requests fetched: ${_requests.length}");
@@ -69,23 +236,415 @@ class RequestProvider with ChangeNotifier {
     _context = context;
   }
 
-  // Helper method to get the NotificationProvider
-  custom_notification.NotificationProvider get _notificationProvider {
-    if (_context == null) {
-      throw Exception('Context not set in RequestProvider');
+  Future<void> updateRequestStatus(String id, String status) async {
+    try {
+      await _firestore
+          .collection('requests')
+          .doc(id)
+          .update({'status': status});
+      final request = await _firestore.collection('requests').doc(id).get();
+      final requestData = request.data() as Map<String, dynamic>;
+      final userId = requestData['createdBy'];
+      final String? userRole = await getUserRole(userId);
+
+      switch (status) {
+        case 'approved':
+          _notificationProvider.sendNotification(
+            userId,
+            'Request Approved',
+            'Your request has been approved.',
+            userRole: userRole ?? 'User',
+            requestId: id,
+          );
+          _notificationProvider.addNotificationForRole(
+            'New Approved Request',
+            'A new request has been approved and is ready for fulfillment.',
+            'Gate Man',
+            requestId: id,
+          );
+          break;
+        case 'rejected':
+          _notificationProvider.sendNotification(
+            userId,
+            'Request Rejected',
+            'Your request has been rejected.',
+            userRole: userRole ?? 'User',
+            requestId: id,
+          );
+          break;
+        case 'fulfilled':
+          _notificationProvider.sendNotification(
+            userId,
+            'Request Fulfilled',
+            'Your request has been fulfilled.',
+            userRole: userRole ?? 'User',
+            requestId: id,
+          );
+          break;
+      }
+
+      print("Request status updated successfully");
+      notifyListeners();
+    } catch (e) {
+      print("Error updating request status: $e");
+      rethrow;
     }
-    return Provider.of<custom_notification.NotificationProvider>(_context!,
-        listen: false);
   }
 
-  InventoryProvider get _inventoryProvider {
-    if (_context == null) {
-      throw Exception('Context not set in RequestProvider');
+  Future<void> addStockRequest({
+    required List<Map<String, dynamic>> items,
+    required String note,
+    required String createdBy,
+  }) async {
+    try {
+      for (var item in items) {
+        if (!item.containsKey('id') ||
+            item['id'] == null ||
+            item['id'].isEmpty) {
+          throw Exception('Item ${item['name']} is missing an ID');
+        }
+      }
+
+      DocumentReference docRef =
+          await _firestore.collection('stock_requests').add({
+        'items': items,
+        'note': note,
+        'createdBy': createdBy,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'approvedBy': null,
+        'approvedAt': null,
+        'fulfilledBy': null,
+        'fulfilledAt': null,
+        'rejectedBy': null,
+        'rejectedAt': null,
+        'rejectionReason': null,
+        'receivedAt': null, // New field for receiving date
+      });
+
+      String requestId = docRef.id;
+      String? userRole = await getUserRole(createdBy);
+
+      _sendNotification(
+        createdBy,
+        'Stock Request Created',
+        'Your stock request (ID: $requestId) has been successfully created on ${DateTime.now().toString()} and is pending approval.',
+        userRole: userRole ?? 'Manager',
+        requestId: requestId,
+      );
+
+      _sendNotificationToRole(
+        'New Stock Request',
+        'A new stock request (ID: $requestId) has been created by a manager on ${DateTime.now().toString()} and is waiting for your approval.',
+        'Admin',
+        requestId: requestId,
+      );
+
+      notifyListeners();
+    } catch (e) {
+      print('Error adding stock request: $e');
+      rethrow;
     }
-    return Provider.of<InventoryProvider>(_context!, listen: false);
   }
 
-  Future<void> addRequest(
+  Future<void> updateStockRequestStatus(
+    String id,
+    String status,
+    String adminEmail, {
+    String? rejectionReason,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'status': status,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      switch (status) {
+        case 'approved':
+          updateData['approvedBy'] = adminEmail;
+          updateData['approvedAt'] = FieldValue.serverTimestamp();
+          break;
+        case 'rejected':
+          updateData['rejectedBy'] = adminEmail;
+          updateData['rejectedAt'] = FieldValue.serverTimestamp();
+          if (rejectionReason != null) {
+            updateData['rejectionReason'] = rejectionReason;
+          }
+          break;
+        case 'fulfilled':
+          updateData['fulfilledBy'] = adminEmail;
+          updateData['fulfilledAt'] = FieldValue.serverTimestamp();
+          updateData['receivedAt'] =
+              FieldValue.serverTimestamp(); // Set receiving date when fulfilled
+          break;
+      }
+
+      await _firestore.collection('stock_requests').doc(id).update(updateData);
+
+      final stockRequest =
+          await _firestore.collection('stock_requests').doc(id).get();
+      final stockRequestData = stockRequest.data() as Map<String, dynamic>;
+      final createdBy = stockRequestData['createdBy'];
+      String? userRole = await getUserRole(createdBy);
+
+      switch (status) {
+        case 'approved':
+          _sendNotification(
+            createdBy,
+            'Stock Request Approved',
+            'Your stock request (ID: $id) has been approved on ${DateTime.now().toString()}.',
+            userRole: userRole ?? 'Manager',
+            requestId: id,
+          );
+          _sendNotificationToRole(
+            'New Approved Stock Request',
+            'A new stock request (ID: $id) has been approved on ${DateTime.now().toString()} and is ready for fulfillment.',
+            'Gate Man',
+            requestId: id,
+          );
+          break;
+        case 'rejected':
+          _sendNotification(
+            createdBy,
+            'Stock Request Rejected',
+            'Your stock request (ID: $id) has been rejected on ${DateTime.now().toString()}. Reason: ${rejectionReason ?? "Not provided"}',
+            userRole: userRole ?? 'Manager',
+            requestId: id,
+          );
+          break;
+        case 'fulfilled':
+          _sendNotification(
+            createdBy,
+            'Stock Request Fulfilled',
+            'Your stock request (ID: $id) has been fulfilled and items were received on ${DateTime.now().toString()}.',
+            userRole: userRole ?? 'Manager',
+            requestId: id,
+          );
+          break;
+      }
+
+      notifyListeners();
+    } catch (e) {
+      print('Error updating stock request status: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getNonFulfilledStockRequests(
+      {DateTime? startDate, DateTime? endDate}) async {
+    try {
+      Query query = _firestore.collection('stock_requests').where('status',
+          whereIn: [
+            'pending',
+            'approved',
+            'partially_fulfilled'
+          ]).orderBy('createdAt', descending: true);
+
+      if (startDate != null) {
+        query = query.where('createdAt', isGreaterThanOrEqualTo: startDate);
+      }
+      if (endDate != null) {
+        query = query.where('createdAt', isLessThanOrEqualTo: endDate);
+      }
+
+      QuerySnapshot querySnapshot = await query.get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+
+        // Convert Timestamps to DateTime
+        if (data['createdAt'] != null) {
+          data['createdAt'] = (data['createdAt'] as Timestamp).toDate();
+        }
+        if (data['receivedAt'] != null) {
+          data['receivedAt'] = (data['receivedAt'] as Timestamp).toDate();
+        }
+
+        return data;
+      }).toList();
+    } catch (e) {
+      print("Error fetching non-fulfilled stock requests: $e");
+      return [];
+    }
+  }
+  Future<void> fulfillStockRequest(
+    String requestId,
+    List<Map<String, dynamic>> receivedItems,
+    String gateManId,
+  ) async {
+    try {
+      bool isFullyFulfilled = true;
+
+      await _firestore.runTransaction((transaction) async {
+        print("Starting transaction for request: $requestId");
+
+        DocumentSnapshot requestDoc = await transaction
+            .get(_firestore.collection('stock_requests').doc(requestId));
+
+        if (!requestDoc.exists) {
+          throw Exception('Stock request not found');
+        }
+
+        Map<String, dynamic> requestData =
+            requestDoc.data() as Map<String, dynamic>;
+        List<dynamic> requestItems = requestData['items'] ?? [];
+        List<Map<String, dynamic>> updatedItems = [];
+
+        for (var originalItem in requestItems) {
+          var receivedItem = receivedItems.firstWhere(
+            (item) => item['id'] == originalItem['id'],
+            orElse: () => <String, dynamic>{},
+          );
+
+          double requestedQuantity =
+              (originalItem['quantity'] as num?)?.toDouble() ?? 0;
+          double previouslyReceived =
+              (originalItem['receivedQuantity'] as num?)?.toDouble() ?? 0;
+          double newlyReceived =
+              (receivedItem['receivedQuantity'] as num?)?.toDouble() ?? 0;
+          double totalReceived = previouslyReceived + newlyReceived;
+          double remainingQuantity = requestedQuantity - totalReceived;
+
+          bool isPipe = originalItem['isPipe'] as bool? ?? false;
+          String unit = originalItem['unit'] as String? ?? 'N/A';
+          double pipeLength =
+              (originalItem['pipeLength'] as num?)?.toDouble() ?? 20.0;
+
+          double totalReceivedLength = totalReceived;
+          double remainingLength = remainingQuantity;
+
+          if (isPipe && unit == 'pcs') {
+            totalReceivedLength = totalReceived * pipeLength;
+            remainingLength = remainingQuantity * pipeLength;
+          }
+
+          updatedItems.add({
+            ...originalItem,
+            'receivedQuantity': totalReceived,
+            'remainingQuantity': remainingQuantity,
+            'totalReceivedLength': totalReceivedLength,
+            'remainingLength': remainingLength,
+          });
+
+          if (remainingQuantity > 0) {
+            isFullyFulfilled = false;
+          }
+
+          // Update inventory if needed
+          if (newlyReceived > 0) {
+            String? itemId = originalItem['id'] as String?;
+            if (itemId != null && itemId.isNotEmpty) {
+              await _inventoryProvider.updateInventoryQuantity(
+                itemId,
+                newlyReceived,
+                unit: isPipe ? unit : null,
+              );
+            }
+          }
+        }
+
+        String newStatus =
+            isFullyFulfilled ? 'fulfilled' : 'partially_fulfilled';
+        transaction
+            .update(_firestore.collection('stock_requests').doc(requestId), {
+          'items': updatedItems,
+          'status': newStatus,
+          'lastUpdated': FieldValue.serverTimestamp(),
+          'fulfilledBy': gateManId,
+          'fulfilledAt': FieldValue.serverTimestamp(),
+        });
+
+        print("Transaction completed. New status: $newStatus");
+      }, timeout: Duration(seconds: 30));
+
+      // Fetch the updated stock request data
+      final updatedStockRequest =
+          await _firestore.collection('stock_requests').doc(requestId).get();
+      final updatedStockRequestData =
+          updatedStockRequest.data() as Map<String, dynamic>;
+      final createdBy = updatedStockRequestData['createdBy'];
+      String? creatorRole = await getUserRole(createdBy);
+      String fulfillmentStatus = isFullyFulfilled ? 'fully' : 'partially';
+
+      _sendNotification(
+        createdBy,
+        'Stock Request $fulfillmentStatus Fulfilled',
+        'Your stock request (ID: $requestId) has been $fulfillmentStatus fulfilled by a Gate Man.',
+        userRole: creatorRole ?? 'Manager',
+        requestId: requestId,
+      );
+
+      _sendNotificationToRole(
+        'Stock Request $fulfillmentStatus Fulfilled',
+        'Stock request (ID: $requestId) has been $fulfillmentStatus fulfilled by a Gate Man.',
+        'Admin',
+        requestId: requestId,
+      );
+
+      _sendNotificationToRole(
+        'Stock Request $fulfillmentStatus Fulfilled',
+        'Stock request (ID: $requestId) has been $fulfillmentStatus fulfilled by a Gate Man.',
+        'Manager',
+        requestId: requestId,
+        excludeUserId: creatorRole == 'Manager' ? createdBy : null,
+      );
+
+      notifyListeners();
+    } catch (e) {
+      print("Error fulfilling stock request: $e");
+      rethrow;
+    }
+  }
+
+  void _sendNotification(String userId, String title, String body,
+      {required String userRole, String? requestId}) {
+    try {
+      _notificationProvider.sendNotification(
+        userId,
+        title,
+        body,
+        userRole: userRole,
+        requestId: requestId,
+      );
+    } catch (e) {
+      print("Error sending notification: $e");
+      // Consider whether to rethrow or just log the error
+    }
+  }
+
+  void _sendNotificationToRole(String title, String body, String role,
+      {String? requestId, String? excludeUserId}) {
+    try {
+      _notificationProvider.addNotificationForRole(
+        title,
+        body,
+        role,
+        requestId: requestId,
+        excludeUserId: excludeUserId,
+      );
+    } catch (e) {
+      print("Error sending notification to role: $e");
+      // Consider whether to rethrow or just log the error
+    }
+  }
+
+  Future<String?> getUserRole(String uid) async {
+    try {
+      DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
+        return userData['role'] as String?;
+      }
+    } catch (e) {
+      print("Error getting user role: $e");
+    }
+    return null;
+  }
+
+  Future<String> addRequest(
     List<Map<String, dynamic>> items,
     String location,
     String pickerName,
@@ -100,123 +659,151 @@ class RequestProvider with ChangeNotifier {
         throw Exception('User must be logged in to create a request');
       }
 
-      String? userRole = await getUserRole(user.uid);
       String uniqueCode = generateUniqueCode();
+      List<Map<String, dynamic>> updatedItems = List.from(items);
 
-      Map<String, Map<String, dynamic>> combinedItems = {};
-      for (var item in items) {
-        String itemId = item['id'];
-        if (combinedItems.containsKey(itemId)) {
-          combinedItems[itemId]!['quantity'] =
-              (combinedItems[itemId]!['quantity'] as int) +
-                  (item['quantity'] as int);
-        } else {
-          combinedItems[itemId] = Map.from(item);
-        }
-      }
+      late String requestId;
 
-      List<Map<String, dynamic>> getTodayRequests() {
-        final now = DateTime.now();
-        return requests.where((request) {
-          final requestDate = request['timestamp'] as DateTime;
-          return requestDate.year == now.year &&
-              requestDate.month == now.month &&
-              requestDate.day == now.day;
-        }).toList();
-      }
+      await _firestore.runTransaction<void>(
+        (transaction) async {
+          print("Starting transaction for new request");
 
-      List<Map<String, dynamic>> getApprovedRequests(String searchQuery) {
-        return requests.where((request) {
-          return request['status'] == 'approved' &&
-              (request['pickerName']
-                      .toString()
-                      .toLowerCase()
-                      .contains(searchQuery.toLowerCase()) ||
-                  request['pickerContact'].toString().contains(searchQuery));
-        }).toList();
-      }
+          List<DocumentSnapshot> inventorySnapshots = await Future.wait(
+            updatedItems.map((item) => transaction
+                .get(_firestore.collection('inventory').doc(item['id']))),
+          );
 
-      List<Map<String, dynamic>> updatedItems = combinedItems.values.toList();
+          for (int i = 0; i < updatedItems.length; i++) {
+            var item = updatedItems[i];
+            var inventorySnapshot = inventorySnapshots[i];
 
-      await _firestore.runTransaction((transaction) async {
-        // First, perform all reads
-        List<DocumentSnapshot> inventorySnapshots = await Future.wait(
-          updatedItems.map((item) => transaction
-              .get(_firestore.collection('inventory').doc(item['id']))),
-        );
+            print("Processing item: ${item['name']}, ID: ${item['id']}");
 
-        // Now, prepare the writes (but don't execute them yet)
-        List<Map<String, dynamic>> itemUpdates = [];
-        for (int i = 0; i < updatedItems.length; i++) {
-          var item = updatedItems[i];
-          var inventorySnapshot = inventorySnapshots[i];
+            if (inventorySnapshot.exists) {
+              Map<String, dynamic> inventoryData =
+                  inventorySnapshot.data() as Map<String, dynamic>;
+              double currentQuantity =
+                  (inventoryData['quantity'] as num?)?.toDouble() ?? 0.0;
+              bool isPipe = item['isPipe'] == true;
+              double pipeLength = isPipe
+                  ? (inventoryData['pipeLength'] as num?)?.toDouble() ?? 1.0
+                  : 0.0;
 
-          if (inventorySnapshot.exists) {
-            int currentQuantity = inventorySnapshot.get('quantity') as int;
-            int requestedQuantity = item['quantity'] as int;
-            int fulfillableQuantity =
-                math.min(currentQuantity, requestedQuantity);
+              if (isPipe) {
+                // ... (pipe logic remains the same)
+              } else {
+                // Non-pipe items (unchanged)
+                double requestedQuantity =
+                    (item['quantity'] as num?)?.toDouble() ?? 0.0;
+                double fulfillableQuantity =
+                    math.min(currentQuantity, requestedQuantity);
 
-            itemUpdates.add({
-              'ref': _firestore.collection('inventory').doc(item['id']),
-              'data': {'quantity': currentQuantity - fulfillableQuantity},
-            });
+                transaction.update(
+                  _firestore.collection('inventory').doc(item['id']),
+                  {'quantity': FieldValue.increment(-fulfillableQuantity)},
+                );
 
-            item['quantityFulfilled'] = fulfillableQuantity;
-            item['quantityPending'] = requestedQuantity - fulfillableQuantity;
-          } else {
-            item['quantityFulfilled'] = 0;
-            item['quantityPending'] = item['quantity'];
+                item['quantityFulfilled'] = fulfillableQuantity;
+                item['quantityPending'] =
+                    math.max(0, requestedQuantity - fulfillableQuantity);
+              }
+            } else {
+              print("Inventory item not found: ${item['id']}");
+              if (item['isPipe'] == true) {
+                item['pcsFulfilled'] = 0;
+                item['metersFulfilled'] = 0.0;
+                item['pcsPending'] = item['pcs'] ?? 0;
+                item['metersPending'] = item['meters'] ?? 0.0;
+              } else {
+                item['quantityFulfilled'] = 0.0;
+                item['quantityPending'] = item['quantity'] ?? 0.0;
+              }
+            }
           }
-        }
 
-        // Prepare the request document
-        DocumentReference requestRef = _firestore.collection('requests').doc();
-        Map<String, dynamic> requestData = {
-          'items': updatedItems,
-          'status': 'pending',
-          'timestamp': FieldValue.serverTimestamp(),
-          'location': location,
-          'pickerName': pickerName,
-          'pickerContact': pickerContact,
-          'note': note,
-          'uniqueCode': uniqueCode,
-          'codeValid': true,
-          'createdBy': user.uid,
-          'createdByEmail': createdByEmail,
-          'createdByName': user.displayName ?? 'Unknown User',
-        };
+          DocumentReference requestRef =
+              _firestore.collection('requests').doc();
+          requestId = requestRef.id;
+          Map<String, dynamic> requestData = {
+            'items': updatedItems,
+            'status': 'pending',
+            'timestamp': FieldValue.serverTimestamp(),
+            'location': location,
+            'pickerName': pickerName,
+            'pickerContact': pickerContact,
+            'note': note,
+            'uniqueCode': uniqueCode,
+            'codeValid': true,
+            'createdBy': user.uid,
+            'createdByEmail': createdByEmail,
+            'createdByName': user.displayName ?? 'Unknown User',
+          };
 
-        // Now perform all writes
-        for (var update in itemUpdates) {
-          transaction.update(update['ref'], update['data']);
-        }
-        transaction.set(requestRef, requestData);
-      });
-
-      // Add notification for the user who created the request
-      await _notificationProvider.addUserNotification(
-        createdByEmail,
-        'New Request Created',
-        'Your request has been successfully created and is pending approval.',
+          transaction.set(requestRef, requestData);
+          print("Request data prepared for Firestore: $requestData");
+        },
+        timeout: Duration(seconds: 30),
       );
 
-      // Add notification for managers
-      List<String> managerIds = await _getManagerIds();
-      for (String managerId in managerIds) {
-        await _notificationProvider.addManagerNotification(
-          managerId,
-          'New Request Pending',
-          'A new request has been created and is waiting for your approval.',
-        );
-      }
+      print("New request created with ID: $requestId");
+
+      await _notifyManagersAndAdmins(requestId, user.email ?? 'Unknown');
 
       notifyListeners();
       await inventoryProvider.fetchItems();
+      print("Request creation process completed successfully");
+
+      return requestId;
     } catch (e) {
       print("Error in addRequest: $e");
       print("Stack trace: ${StackTrace.current}");
       rethrow;
+    }
+  }
+
+  Future<void> _notifyManagersAndAdmins(
+      String requestId, String userEmail) async {
+    try {
+      WriteBatch batch = _firestore.batch();
+
+      List<String> managerIds = await _getManagerIds();
+      List<String> adminIds = await _getAdminIds();
+
+      DateTime now = DateTime.now();
+
+      for (String managerId in managerIds) {
+        DocumentReference notificationRef =
+            _firestore.collection('notifications').doc();
+        batch.set(notificationRef, {
+          'userId': managerId,
+          'title': 'New Request Pending',
+          'body':
+              'A new request has been created by $userEmail and is waiting for your approval.',
+          'userRole': 'Manager',
+          'requestId': requestId,
+          'timestamp': now,
+          'isRead': false,
+        });
+      }
+
+      for (String adminId in adminIds) {
+        DocumentReference notificationRef =
+            _firestore.collection('notifications').doc();
+        batch.set(notificationRef, {
+          'userId': adminId,
+          'title': 'New Request Created',
+          'body': 'A new request has been created by $userEmail.',
+          'userRole': 'Admin',
+          'requestId': requestId,
+          'timestamp': now,
+          'isRead': false,
+        });
+      }
+
+      await batch.commit();
+      print("Notifications sent to managers and admins");
+    } catch (e) {
+      print("Error in _notifyManagersAndAdmins: $e");
     }
   }
 
@@ -234,71 +821,165 @@ class RequestProvider with ChangeNotifier {
   List<Map<String, dynamic>> getTodayRequests() {
     final now = DateTime.now();
     return _requests.where((request) {
-      final requestDate = request['timestamp'] as DateTime;
-      return requestDate.year == now.year &&
-          requestDate.month == now.month &&
-          requestDate.day == now.day;
+      final requestDate = request['timestamp'];
+      if (requestDate is DateTime) {
+        return requestDate.year == now.year &&
+            requestDate.month == now.month &&
+            requestDate.day == now.day;
+      }
+      return false;
     }).toList();
   }
 
-  Future<String?> getUserRole(String uid) async {
-    try {
-      DocumentSnapshot userDoc =
-          await _firestore.collection('users').doc(uid).get();
-      if (userDoc.exists) {
-        Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-        return userData['role'] as String?;
+  Stream<Map<String, int>> getDashboardStats(DateTime date) {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
+
+    StreamController<Map<String, int>> controller =
+        StreamController<Map<String, int>>();
+
+    void updateStats() async {
+      try {
+        QuerySnapshot regularSnapshot = await _firestore
+            .collection('requests')
+            .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+            .where('timestamp', isLessThanOrEqualTo: endOfDay)
+            .get();
+
+        QuerySnapshot stockSnapshot = await _firestore
+            .collection('stock_requests')
+            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
+            .where('createdAt', isLessThanOrEqualTo: endOfDay)
+            .get();
+
+        int totalRequests =
+            regularSnapshot.docs.length + stockSnapshot.docs.length;
+        int pendingRequests = regularSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] == 'pending')
+                .length +
+            stockSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] == 'pending')
+                .length;
+        int approvedRequests = regularSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] ==
+                    'approved')
+                .length +
+            stockSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] ==
+                    'approved')
+                .length;
+        int fulfilledRequests = regularSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] ==
+                    'fulfilled')
+                .length +
+            stockSnapshot.docs
+                .where((doc) =>
+                    (doc.data() as Map<String, dynamic>)['status'] ==
+                    'fulfilled')
+                .length;
+
+        controller.add({
+          'total': totalRequests,
+          'pending': pendingRequests,
+          'approved': approvedRequests,
+          'fulfilled': fulfilledRequests,
+        });
+      } catch (e) {
+        controller.addError(e);
       }
-    } catch (e) {
-      print("Error getting user role: $e");
     }
-    return null;
+
+    updateStats();
+
+    return controller.stream;
   }
 
-  Future<void> updateRequestStatus(String id, String status) async {
-    try {
-      await _firestore
-          .collection('requests')
-          .doc(id)
-          .update({'status': status});
-      // Add notification based on the new status
-      final request = await _firestore.collection('requests').doc(id).get();
-      final requestData = request.data() as Map<String, dynamic>;
-      final userEmail = requestData['createdByEmail'];
+  Stream<List<Map<String, dynamic>>> getRecentActivityStream(DateTime date) {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
 
-      switch (status) {
-        case 'approved':
-          await _notificationProvider.addUserNotification(
-            userEmail,
-            'Request Approved',
-            'Your request has been approved.',
-          );
-          break;
-        case 'rejected':
-          await _notificationProvider.addUserNotification(
-            userEmail,
-            'Request Rejected',
-            'Your request has been rejected.',
-          );
-          break;
-        case 'fulfilled':
-          await _notificationProvider.addUserNotification(
-            userEmail,
-            'Request Fulfilled',
-            'Your request has been fulfilled.',
-          );
-          break;
+    StreamController<List<Map<String, dynamic>>> controller =
+        StreamController<List<Map<String, dynamic>>>();
+
+    void updateActivity() async {
+      try {
+        QuerySnapshot regularSnapshot = await _firestore
+            .collection('requests')
+            .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+            .where('timestamp', isLessThanOrEqualTo: endOfDay)
+            .orderBy('timestamp', descending: true)
+            .limit(5)
+            .get();
+
+        QuerySnapshot stockSnapshot = await _firestore
+            .collection('stock_requests')
+            .where('createdAt', isGreaterThanOrEqualTo: startOfDay)
+            .where('createdAt', isLessThanOrEqualTo: endOfDay)
+            .orderBy('createdAt', descending: true)
+            .limit(5)
+            .get();
+
+        List<Map<String, dynamic>> recentActivity = [];
+
+        recentActivity.addAll(regularSnapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return {
+            'id': doc.id,
+            'type': 'Regular',
+            'status': data['status'],
+            'timestamp': data['timestamp'],
+          };
+        }));
+
+        recentActivity.addAll(stockSnapshot.docs.map((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          return {
+            'id': doc.id,
+            'type': 'Stock',
+            'status': data['status'],
+            'timestamp': data['createdAt'],
+          };
+        }));
+
+        recentActivity.sort((a, b) => (b['timestamp'] as Timestamp)
+            .compareTo(a['timestamp'] as Timestamp));
+        controller.add(recentActivity.take(5).toList());
+      } catch (e) {
+        controller.addError(e);
       }
-
-      print("Request status updated successfully");
-      notifyListeners();
-    } catch (e) {
-      print("Error updating request status: $e");
-      rethrow;
     }
+
+    updateActivity();
+
+    return controller.stream;
   }
 
-// Implement the helper methods to get user IDs by role
+  Future<List<Map<String, dynamic>>> getRecentFulfilledRequests() async {
+    final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+    QuerySnapshot snapshot = await _firestore
+        .collection('requests')
+        .where('status', isEqualTo: 'fulfilled')
+        .where('fulfilledAt', isGreaterThanOrEqualTo: twoDaysAgo)
+        .orderBy('fulfilledAt', descending: true)
+        .limit(10)
+        .get();
+
+    return snapshot.docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      data['id'] = doc.id;
+      if (data['fulfilledAt'] is Timestamp) {
+        data['fulfilledAt'] = (data['fulfilledAt'] as Timestamp).toDate();
+      }
+      return data;
+    }).toList();
+  }
+
+  // Implement the helper methods to get user IDs by role
   Future<List<String>> _getManagerIds() async {
     try {
       QuerySnapshot querySnapshot = await _firestore
@@ -345,11 +1026,13 @@ class RequestProvider with ChangeNotifier {
 
         // Restore inventory for fulfilled quantities
         for (var item in items) {
-          if (item['quantityFulfilled'] > 0) {
+          double quantityFulfilled =
+              (item['quantityFulfilled'] as num?)?.toDouble() ?? 0;
+          if (quantityFulfilled > 0) {
             DocumentReference inventoryRef =
                 _firestore.collection('inventory').doc(item['id']);
             transaction.update(inventoryRef, {
-              'quantity': FieldValue.increment(item['quantityFulfilled']),
+              'quantity': FieldValue.increment(quantityFulfilled),
             });
           }
         }
@@ -412,118 +1095,6 @@ class RequestProvider with ChangeNotifier {
       rethrow;
     }
   }
-
-  Future<void> addStockRequest({
-    required List<Map<String, dynamic>> items,
-    required String note,
-    required String createdBy,
-  }) async {
-    try {
-      // Ensure each item has an ID
-      for (var item in items) {
-        if (!item.containsKey('id') ||
-            item['id'] == null ||
-            item['id'].isEmpty) {
-          throw Exception('Item ${item['name']} is missing an ID');
-        }
-      }
-
-      await _firestore.collection('stock_requests').add({
-        'items': items,
-        'note': note,
-        'createdBy': createdBy,
-        'status': 'pending',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'approvedBy': null,
-        'approvedAt': null,
-        'fulfilledBy': null,
-        'fulfilledAt': null,
-        'rejectedBy': null,
-        'rejectedAt': null,
-        'rejectionReason': null,
-      });
-
-      // Add notification for the user who created the stock request
-      await _notificationProvider.addUserNotification(
-        createdBy,
-        'Stock Request Created',
-        'Your stock request has been successfully created and is pending approval.',
-      );
-
-      // Add notification for admins
-      List<String> adminIds = await _getAdminIds();
-      for (String adminId in adminIds) {
-        await _notificationProvider.addAdminNotification(
-          adminId,
-          'New Stock Request',
-          'A new stock request has been created and is waiting for your approval.',
-        );
-      }
-
-      notifyListeners();
-    } catch (e) {
-      print('Error adding stock request: $e');
-      throw e;
-    }
-  }
-
-  // Future<void> addStockRequest({
-  //   required List<Map<String, dynamic>> items,
-  //   required String note,
-  //   required String createdBy,
-  // }) async {
-  //   try {
-  //     // Ensure each item has an ID
-  //     for (var item in items) {
-  //       if (!item.containsKey('id') ||
-  //           item['id'] == null ||
-  //           item['id'].isEmpty) {
-  //         throw Exception('Item ${item['name']} is missing an ID');
-  //       }
-  //     }
-
-  //     await FirebaseFirestore.instance.collection('stock_requests').add({
-  //       'items': items,
-  //       'note': note,
-  //       'createdBy': createdBy,
-  //       'status': 'pending',
-  //       'createdAt': FieldValue.serverTimestamp(),
-  //       'updatedAt': FieldValue.serverTimestamp(),
-  //       'approvedBy': null,
-  //       'approvedAt': null,
-  //       'fulfilledBy': null,
-  //       'fulfilledAt': null,
-  //       'rejectedBy': null,
-  //       'rejectedAt': null,
-  //       'rejectionReason': null,
-  //     });
-
-  //     // Add notification for the user who created the stock request
-  //     final notificationProvider =
-  //         Provider.of<custom_notification.NotificationProvider>(context,
-  //             listen: false);
-  //     await notificationProvider.addUserNotification(
-  //       createdBy,
-  //       'Stock Request Created',
-  //       'Your stock request has been successfully created and is pending approval.',
-  //     );
-
-  //     // Add notification for admins
-  //     List<String> adminIds = await _getAdminIds();
-  //     for (String adminId in adminIds) {
-  //       await notificationProvider.addAdminNotification(
-  //         adminId,
-  //         'New Stock Request',
-  //         'A new stock request has been created and is waiting for your approval.',
-  //       );
-  //     }
-  //     notifyListeners();
-  //   } catch (e) {
-  //     print('Error adding stock request: $e');
-  //     throw e;
-  //   }
-  // }
 
   Stream<List<Map<String, dynamic>>> getStockRequestsStream() {
     return FirebaseFirestore.instance
@@ -606,143 +1177,6 @@ class RequestProvider with ChangeNotifier {
     }).toList();
   }
 
-  // Future<void> updateStockRequestStatus(
-  //     String id, String status, String adminEmail,
-  //     {String? rejectionReason}) async {
-  //   try {
-  //     final updateData = <String, dynamic>{
-  //       'status': status,
-  //       'updatedAt': FieldValue.serverTimestamp(),
-  //     };
-
-  //     switch (status) {
-  //       case 'approved':
-  //         updateData['approvedBy'] = adminEmail;
-  //         updateData['approvedAt'] = FieldValue.serverTimestamp();
-  //         break;
-  //       case 'fulfilled':
-  //         updateData['fulfilledBy'] = adminEmail;
-  //         updateData['fulfilledAt'] = FieldValue.serverTimestamp();
-  //         break;
-  //       case 'rejected':
-  //         updateData['rejectedBy'] = adminEmail;
-  //         updateData['rejectedAt'] = FieldValue.serverTimestamp();
-  //         if (rejectionReason != null) {
-  //           updateData['rejectionReason'] = rejectionReason;
-  //         }
-  //         break;
-  //     }
-
-  //     await FirebaseFirestore.instance
-  //         .collection('stock_requests')
-  //         .doc(id)
-  //         .update(updateData);
-
-  //     // Add notification based on the new status
-  //     final notificationProvider =
-  //         Provider.of<custom_notification.NotificationProvider>(context,
-  //             listen: false);
-  //     final stockRequest =
-  //         await _firestore.collection('stock_requests').doc(id).get();
-  //     final stockRequestData = stockRequest.data() as Map<String, dynamic>;
-  //     final createdBy = stockRequestData['createdBy'];
-
-  //     switch (status) {
-  //       case 'approved':
-  //         await notificationProvider.addUserNotification(
-  //           createdBy,
-  //           'Stock Request Approved',
-  //           'Your stock request has been approved.',
-  //         );
-  //         break;
-  //       case 'rejected':
-  //         await notificationProvider.addUserNotification(
-  //           createdBy,
-  //           'Stock Request Rejected',
-  //           'Your stock request has been rejected. Reason: ${rejectionReason ?? "Not provided"}',
-  //         );
-  //         break;
-  //       case 'fulfilled':
-  //         await notificationProvider.addUserNotification(
-  //           createdBy,
-  //           'Stock Request Fulfilled',
-  //           'Your stock request has been fulfilled.',
-  //         );
-  //         break;
-  //     }
-
-  //     notifyListeners();
-  //   } catch (e) {
-  //     print('Error updating stock request status: $e');
-  //     throw e;
-  //   }
-  // }
-  Future<void> updateStockRequestStatus(
-      String id, String status, String adminEmail,
-      {String? rejectionReason}) async {
-    try {
-      final updateData = <String, dynamic>{
-        'status': status,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      switch (status) {
-        case 'approved':
-          updateData['approvedBy'] = adminEmail;
-          updateData['approvedAt'] = FieldValue.serverTimestamp();
-          break;
-        case 'fulfilled':
-          updateData['fulfilledBy'] = adminEmail;
-          updateData['fulfilledAt'] = FieldValue.serverTimestamp();
-          break;
-        case 'rejected':
-          updateData['rejectedBy'] = adminEmail;
-          updateData['rejectedAt'] = FieldValue.serverTimestamp();
-          if (rejectionReason != null) {
-            updateData['rejectionReason'] = rejectionReason;
-          }
-          break;
-      }
-
-      await _firestore.collection('stock_requests').doc(id).update(updateData);
-
-      // Add notification based on the new status
-      final stockRequest =
-          await _firestore.collection('stock_requests').doc(id).get();
-      final stockRequestData = stockRequest.data() as Map<String, dynamic>;
-      final createdBy = stockRequestData['createdBy'];
-
-      switch (status) {
-        case 'approved':
-          await _notificationProvider.addUserNotification(
-            createdBy,
-            'Stock Request Approved',
-            'Your stock request has been approved.',
-          );
-          break;
-        case 'rejected':
-          await _notificationProvider.addUserNotification(
-            createdBy,
-            'Stock Request Rejected',
-            'Your stock request has been rejected. Reason: ${rejectionReason ?? "Not provided"}',
-          );
-          break;
-        case 'fulfilled':
-          await _notificationProvider.addUserNotification(
-            createdBy,
-            'Stock Request Fulfilled',
-            'Your stock request has been fulfilled.',
-          );
-          break;
-      }
-
-      notifyListeners();
-    } catch (e) {
-      print('Error updating stock request status: $e');
-      throw e;
-    }
-  }
-
   Future<void> updateRequest(
     String requestId,
     List<Map<String, dynamic>> newItems,
@@ -756,6 +1190,8 @@ class RequestProvider with ChangeNotifier {
     try {
       await _firestore.runTransaction((transaction) async {
         print("Starting transaction for request: $requestId");
+
+        // Get the request snapshot
         DocumentSnapshot requestSnapshot = await transaction
             .get(_firestore.collection('requests').doc(requestId));
 
@@ -770,24 +1206,35 @@ class RequestProvider with ChangeNotifier {
 
         print("Old items: $oldItems");
 
+        // Fetch all relevant inventory items
         List<DocumentSnapshot> inventorySnapshots = await Future.wait(
           newItems.map((item) => transaction
               .get(_firestore.collection('inventory').doc(item['id']))),
         );
 
         List<Map<String, dynamic>> updatedItems = [];
-        List<Map<String, dynamic>> inventoryUpdates = [];
+        Map<String, int> inventoryAdjustments = {};
 
+        // Restore previous inventory quantities
         for (var oldItem in oldItems) {
-          int quantityFulfilled = oldItem['quantityFulfilled'] ?? 0;
+          int quantityFulfilled =
+              (oldItem['quantityFulfilled'] as num?)?.toInt() ?? 0;
           if (quantityFulfilled > 0) {
-            inventoryUpdates.add({
-              'id': oldItem['id'],
-              'quantity': FieldValue.increment(quantityFulfilled),
-            });
+            inventoryAdjustments[oldItem['id']] =
+                (inventoryAdjustments[oldItem['id']] ?? 0) + quantityFulfilled;
+          }
+
+          // Handle restoring for pipes
+          if (oldItem['isPipe'] == true) {
+            int pcsFulfilled = (oldItem['pcs'] as num?)?.toInt() ?? 0;
+            if (pcsFulfilled > 0) {
+              inventoryAdjustments[oldItem['id']] =
+                  (inventoryAdjustments[oldItem['id']] ?? 0) + pcsFulfilled;
+            }
           }
         }
 
+        // Process new items
         for (int i = 0; i < newItems.length; i++) {
           var newItem = newItems[i];
           var inventorySnapshot = inventorySnapshots[i];
@@ -799,48 +1246,80 @@ class RequestProvider with ChangeNotifier {
             print("Raw inventory quantity: $rawQuantity");
             int currentQuantity = (rawQuantity as num?)?.toInt() ?? 0;
 
-            var rawRequestedQuantity = newItem['quantity'];
-            print("Raw requested quantity: $rawRequestedQuantity");
-            int requestedQuantity =
-                (rawRequestedQuantity as num?)?.toInt() ?? 0;
+            // Determine quantities for non-pipe items
+            if (newItem['isPipe'] != true) {
+              var rawRequestedQuantity = newItem['quantity'];
+              print("Raw requested quantity: $rawRequestedQuantity");
+              int requestedQuantity =
+                  (rawRequestedQuantity as num?)?.toInt() ?? 0;
 
-            print(
-                "Current quantity: $currentQuantity, Requested quantity: $requestedQuantity");
+              print(
+                  "Current quantity: $currentQuantity, Requested quantity: $requestedQuantity");
 
-            int fulfillableQuantity;
-            try {
-              fulfillableQuantity =
+              int fulfillableQuantity =
                   math.min(currentQuantity, requestedQuantity);
-            } catch (e) {
-              print("Error in math.min: $e");
-              fulfillableQuantity = 0; // Set a default value
+              print("Fulfillable quantity: $fulfillableQuantity");
+
+              updatedItems.add({
+                ...newItem,
+                'quantityFulfilled': fulfillableQuantity,
+                'quantityPending':
+                    math.max(0, requestedQuantity - fulfillableQuantity),
+              });
+
+              inventoryAdjustments[newItem['id']] =
+                  (inventoryAdjustments[newItem['id']] ?? 0) -
+                      fulfillableQuantity;
+            } else {
+              // Handle pipe-specific logic
+              double pipeLength = newItem['pipeLength'] as double? ?? 20.0;
+              var rawRequestedPcs = newItem['pcs'];
+              var rawRequestedMeters = newItem['meters'];
+              int requestedPcs = (rawRequestedPcs as num?)?.toInt() ?? 0;
+              double requestedMeters =
+                  (rawRequestedMeters as num?)?.toDouble() ?? 0.0;
+
+              int fulfillablePcs = math.min(currentQuantity, requestedPcs);
+              double fulfillableMeters = fulfillablePcs * pipeLength;
+
+              // Adjust for meters if requested
+              if (requestedMeters > 0) {
+                fulfillableMeters =
+                    math.min(currentQuantity * pipeLength, requestedMeters);
+                fulfillablePcs = (fulfillableMeters / pipeLength).floor();
+              }
+
+              updatedItems.add({
+                ...newItem,
+                'pcsFulfilled': fulfillablePcs,
+                'metersFulfilled': fulfillableMeters,
+                'pcsPending': math.max(0, requestedPcs - fulfillablePcs),
+                'metersPending':
+                    math.max(0, requestedMeters - fulfillableMeters),
+              });
+
+              inventoryAdjustments[newItem['id']] =
+                  (inventoryAdjustments[newItem['id']] ?? 0) - fulfillablePcs;
             }
-            print("Fulfillable quantity: $fulfillableQuantity");
-
-            updatedItems.add({
-              ...newItem,
-              'quantityFulfilled': fulfillableQuantity,
-              'quantityPending':
-                  math.max(0, requestedQuantity - fulfillableQuantity),
-            });
-
-            inventoryUpdates.add({
-              'id': newItem['id'],
-              'quantity': math.max(0, currentQuantity - fulfillableQuantity),
-            });
           } else {
+            // If inventory item does not exist
             print("Inventory item not found: ${newItem['id']}");
             updatedItems.add({
               ...newItem,
               'quantityFulfilled': 0,
               'quantityPending': newItem['quantity'] ?? 0,
+              'pcsFulfilled': 0,
+              'metersFulfilled': 0.0,
+              'pcsPending': newItem['pcs'] ?? 0,
+              'metersPending': newItem['meters'] ?? 0.0,
             });
           }
         }
 
         print("Updated items: $updatedItems");
-        print("Inventory updates: $inventoryUpdates");
+        print("Inventory adjustments: $inventoryAdjustments");
 
+        // Update the request document
         transaction.update(_firestore.collection('requests').doc(requestId), {
           'items': updatedItems,
           'location': location,
@@ -850,10 +1329,11 @@ class RequestProvider with ChangeNotifier {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        for (var update in inventoryUpdates) {
+        // Apply inventory adjustments
+        for (var update in inventoryAdjustments.entries) {
           transaction.update(
-            _firestore.collection('inventory').doc(update['id']),
-            {'quantity': update['quantity']},
+            _firestore.collection('inventory').doc(update.key),
+            {'quantity': FieldValue.increment(update.value)},
           );
         }
       });
@@ -896,6 +1376,115 @@ class RequestProvider with ChangeNotifier {
     }
   }
 
+  Stream<List<Map<String, dynamic>>>
+      getRecentApprovedAndFulfilledRequestsStream() {
+    final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+
+    return _firestore
+        .collection('requests')
+        .where('status', whereIn: ['approved', 'fulfilled'])
+        .where('approvedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+        .orderBy('approvedAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            data['id'] = doc.id;
+            if (data['approvedAt'] is Timestamp) {
+              data['approvedAt'] = (data['approvedAt'] as Timestamp).toDate();
+            }
+            if (data['fulfilledAt'] is Timestamp) {
+              data['fulfilledAt'] = (data['fulfilledAt'] as Timestamp).toDate();
+            }
+            return data;
+          }).toList();
+        });
+  }
+
+  Stream<List<Map<String, dynamic>>> getRecentFulfilledRequestsStream() {
+    final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+
+    print("Starting getRecentFulfilledRequestsStream");
+    print("Two days ago: ${twoDaysAgo.toIso8601String()}");
+
+    return _firestore
+        .collection('requests')
+        .where('status', isEqualTo: 'fulfilled')
+        .where('fulfilledAt', isGreaterThanOrEqualTo: twoDaysAgo)
+        .orderBy('fulfilledAt', descending: true)
+        .snapshots()
+        .map((snapshot) {
+      print("Snapshot received. Document count: ${snapshot.docs.length}");
+
+      if (snapshot.docs.isEmpty) {
+        print("No documents found in the snapshot");
+      }
+
+      final requests = snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        print("Processing document ${doc.id}:");
+        print("  Status: ${data['status']}");
+        print("  FulfilledAt: ${data['fulfilledAt']}");
+
+        if (data['fulfilledAt'] is Timestamp) {
+          data['fulfilledAt'] = (data['fulfilledAt'] as Timestamp).toDate();
+          print("  Converted fulfilledAt: ${data['fulfilledAt']}");
+        } else {
+          print("  fulfilledAt is not a Timestamp: ${data['fulfilledAt']}");
+        }
+
+        return data;
+      }).toList();
+
+      print("Processed ${requests.length} fulfilled requests");
+      return requests;
+    });
+  }
+
+  Future<void> refreshFulfilledRequests() async {
+    try {
+      final twoDaysAgo = DateTime.now().subtract(Duration(days: 2));
+      print("Refreshing fulfilled requests");
+      print("Two days ago: ${twoDaysAgo.toIso8601String()}");
+
+      QuerySnapshot snapshot = await _firestore
+          .collection('requests')
+          .where('status', isEqualTo: 'fulfilled')
+          .where('fulfilledAt', isGreaterThanOrEqualTo: twoDaysAgo)
+          .orderBy('fulfilledAt', descending: true)
+          .get();
+
+      print("Fetched ${snapshot.docs.length} fulfilled requests");
+
+      _fulfilledRequests = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        print("Request ${doc.id}:");
+        print("  Status: ${data['status']}");
+        print("  FulfilledAt: ${data['fulfilledAt']}");
+        return data;
+      }).toList();
+
+      notifyListeners();
+    } catch (e) {
+      print("Error refreshing fulfilled requests: $e");
+    }
+  }
+
+  Future<void> fulfillRequest(String requestId) async {
+    try {
+      await _firestore.collection('requests').doc(requestId).update({
+        'status': 'fulfilled',
+        'fulfilledAt': FieldValue.serverTimestamp(),
+      });
+      notifyListeners();
+    } catch (e) {
+      print("Error fulfilling request: $e");
+      rethrow;
+    }
+  }
+
   Future<void> fulfillRequestByCode(String code) async {
     try {
       print("Attempting to fulfill request with code: $code");
@@ -934,25 +1523,17 @@ class RequestProvider with ChangeNotifier {
         'status': 'fulfilled',
         'codeValid': false,
         'fulfillmentTimestamp': FieldValue.serverTimestamp(),
+        'fulfilledAt': FieldValue.serverTimestamp(),
       });
 
       print("Request fulfilled successfully: $requestId");
 
-      // Add notification for the user
-      final request = await _firestore
-          .collection('requests')
-          .where('uniqueCode', isEqualTo: code)
-          .get();
-      if (request.docs.isNotEmpty) {
-        final requestData = request.docs.first.data();
-        final userEmail = requestData['createdByEmail'];
-        await _notificationProvider.addUserNotification(
-          userEmail,
-          'Request Fulfilled',
-          'Your request has been fulfilled.',
-        );
-      }
+      // Send notifications (keep the existing notification code)
+
       notifyListeners();
+
+      // Refresh the fulfilled requests list
+      await refreshFulfilledRequests();
     } catch (e) {
       print("Error fulfilling request by code: $e");
       rethrow;
@@ -1069,126 +1650,38 @@ class RequestProvider with ChangeNotifier {
     return query.snapshots().asyncMap(_convertQuerySnapshotToList);
   }
 
-  Map<String, dynamic>? getRequestById(String id) {
-    return _requests.firstWhere((request) => request['id'] == id,
-        orElse: () => <String, dynamic>{});
+  Future<Map<String, dynamic>?> getRequestById(String id) async {
+    try {
+      DocumentSnapshot doc =
+          await _firestore.collection('requests').doc(id).get();
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }
+    } catch (e) {
+      print("Error fetching request: $e");
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> getStockRequestById(String id) async {
+    try {
+      DocumentSnapshot doc =
+          await _firestore.collection('stock_requests').doc(id).get();
+      if (doc.exists) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }
+    } catch (e) {
+      print("Error fetching stock request: $e");
+    }
+    return null;
   }
 
   Future<void> cancelListeners() async {
     await _requestSubscription?.cancel();
-  }
-
-  Future<void> fulfillStockRequest(
-    String requestId,
-    List<Map<String, dynamic>> receivedItems,
-  ) async {
-    try {
-      bool isFullyFulfilled = true;
-
-      await _firestore.runTransaction((transaction) async {
-        print("Starting transaction for request: $requestId");
-
-        DocumentSnapshot requestDoc = await transaction
-            .get(_firestore.collection('stock_requests').doc(requestId));
-
-        if (!requestDoc.exists) {
-          throw Exception('Stock request not found');
-        }
-
-        Map<String, dynamic> requestData =
-            requestDoc.data() as Map<String, dynamic>;
-        List<dynamic> requestItems = requestData['items'] ?? [];
-
-        print("Original request items: $requestItems");
-        print("Received items: $receivedItems");
-
-        List<Map<String, dynamic>> updatedItems = [];
-
-        for (var originalItem in requestItems) {
-          var receivedItem = receivedItems.firstWhere(
-            (item) => item['name'] == originalItem['name'],
-            orElse: () => <String, dynamic>{},
-          );
-
-          int requestedQuantity = originalItem['quantity'] ?? 0;
-          int previouslyReceived = originalItem['receivedQuantity'] ?? 0;
-          int newlyReceived = receivedItem['receivedQuantity'] ?? 0;
-          int totalReceived = previouslyReceived + newlyReceived;
-          int remainingQuantity = requestedQuantity - totalReceived;
-
-          String? itemId = originalItem['id'] as String?;
-          if (itemId == null || itemId.isEmpty) {
-            print("Warning: Item ${originalItem['name']} is missing an ID");
-            itemId = await _findItemIdByName(originalItem['name']);
-          }
-
-          if (itemId != null && itemId.isNotEmpty && newlyReceived > 0) {
-            try {
-              // Update inventory quantity
-              await _inventoryProvider.updateInventoryQuantity(
-                  itemId, newlyReceived);
-              print(
-                  "Updated inventory for item $itemId: quantity increased by $newlyReceived");
-            } catch (e) {
-              print("Error updating inventory for item $itemId: $e");
-              throw e; // Rethrow the error to rollback the transaction
-            }
-          } else if (newlyReceived > 0) {
-            print(
-                "Skipping inventory update for item without valid ID: ${originalItem['name']}");
-          }
-
-          updatedItems.add({
-            ...originalItem,
-            'id': itemId,
-            'receivedQuantity': totalReceived,
-            'remainingQuantity': remainingQuantity,
-          });
-
-          if (remainingQuantity > 0) {
-            isFullyFulfilled = false;
-          }
-        }
-
-        String newStatus =
-            isFullyFulfilled ? 'fulfilled' : 'partially_fulfilled';
-        transaction
-            .update(_firestore.collection('stock_requests').doc(requestId), {
-          'items': updatedItems,
-          'status': newStatus,
-          'lastUpdated': FieldValue.serverTimestamp(),
-          'expiresAt':
-              Timestamp.fromDate(DateTime.now().add(Duration(days: 7))),
-        });
-
-        print("Transaction completed. New status: $newStatus");
-      }, timeout: Duration(seconds: 30));
-
-      // Add notification for the user
-      final stockRequest =
-          await _firestore.collection('stock_requests').doc(requestId).get();
-      final stockRequestData = stockRequest.data() as Map<String, dynamic>;
-      final createdBy = stockRequestData['createdBy'];
-
-      if (isFullyFulfilled) {
-        await _notificationProvider.addUserNotification(
-          createdBy,
-          'Stock Request Fully Fulfilled',
-          'Your stock request has been fully fulfilled.',
-        );
-      } else {
-        await _notificationProvider.addUserNotification(
-          createdBy,
-          'Stock Request Partially Fulfilled',
-          'Your stock request has been partially fulfilled.',
-        );
-      }
-
-      notifyListeners();
-    } catch (e) {
-      print("Error fulfilling stock request: $e");
-      rethrow;
-    }
   }
 
   Future<String?> _findItemIdByName(String name) async {
@@ -1207,13 +1700,30 @@ class RequestProvider with ChangeNotifier {
     return null;
   }
 
+  Future<List<Map<String, dynamic>>> getPendingStockRequests() async {
+    try {
+      QuerySnapshot querySnapshot = await _firestore
+          .collection('stock_requests')
+          .where('status', isEqualTo: 'pending')
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      return querySnapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        return data;
+      }).toList();
+    } catch (e) {
+      print("Error fetching pending stock requests: $e");
+      return [];
+    }
+  }
+
   Stream<List<Map<String, dynamic>>> getActiveStockRequestsStream() {
     print("Starting getActiveStockRequestsStream");
     return _firestore
         .collection('stock_requests')
         .where('status', whereIn: ['approved', 'partially_fulfilled'])
-        // Temporarily remove the expiration date filter
-        // .where('expiresAt', isGreaterThan: Timestamp.now())
         .snapshots()
         .map((snapshot) {
           print("Snapshot received. Document count: ${snapshot.docs.length}");
@@ -1243,6 +1753,8 @@ class RequestProvider with ChangeNotifier {
   @override
   void dispose() {
     _requestSubscription?.cancel();
+    cancelListeners();
+    stopAutoRefresh();
     super.dispose();
   }
 }

@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/request_provider.dart';
-import 'package:contacts_service/contacts_service.dart';
+// import 'package:contacts_service/contacts_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class EditManagerRequestBottomSheet extends StatefulWidget {
@@ -282,10 +282,10 @@ class _EditManagerRequestBottomSheetState
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.contact_phone),
-                  onPressed: _pickContact,
-                ),
+                // IconButton(
+                //   icon: Icon(Icons.contact_phone),
+                //   onPressed: _pickContact,
+                // ),
               ],
             ),
             SizedBox(height: 16),
@@ -503,41 +503,41 @@ class _EditManagerRequestBottomSheetState
   //   return true;
   // }
 
-  Future<void> _pickContact() async {
-    try {
-      PermissionStatus permissionStatus;
-      if (Platform.isAndroid) {
-        permissionStatus = await _getContactPermission();
-      } else if (Platform.isIOS) {
-        permissionStatus = await Permission.contacts.request();
-      } else {
-        _showValidationError(
-            "Contact picking is not supported on this platform.");
-        return;
-      }
+  // Future<void> _pickContact() async {
+  //   try {
+  //     PermissionStatus permissionStatus;
+  //     if (Platform.isAndroid) {
+  //       permissionStatus = await _getContactPermission();
+  //     } else if (Platform.isIOS) {
+  //       permissionStatus = await Permission.contacts.request();
+  //     } else {
+  //       _showValidationError(
+  //           "Contact picking is not supported on this platform.");
+  //       return;
+  //     }
 
-      if (permissionStatus == PermissionStatus.granted) {
-        final Contact? contact =
-            await ContactsService.openDeviceContactPicker();
-        if (contact != null) {
-          final phone = contact.phones?.firstWhere(
-              (phone) => phone.value != null,
-              orElse: () => Item(label: 'mobile', value: ''));
-          setState(() {
-            _pickerNameController.text = contact.displayName ?? '';
-            _pickerContactController.text =
-                phone?.value?.replaceAll(RegExp(r'\D'), '') ?? '';
-          });
-        }
-      } else {
-        _handleInvalidPermissions(permissionStatus);
-      }
-    } catch (e) {
-      print("Error picking contact: $e");
-      _showValidationError(
-          "Unable to pick contact. Please enter details manually.");
-    }
-  }
+  //     if (permissionStatus == PermissionStatus.granted) {
+  //       final Contact? contact =
+  //           await ContactsService.openDeviceContactPicker();
+  //       if (contact != null) {
+  //         final phone = contact.phones?.firstWhere(
+  //             (phone) => phone.value != null,
+  //             orElse: () => Item(label: 'mobile', value: ''));
+  //         setState(() {
+  //           _pickerNameController.text = contact.displayName ?? '';
+  //           _pickerContactController.text =
+  //               phone?.value?.replaceAll(RegExp(r'\D'), '') ?? '';
+  //         });
+  //       }
+  //     } else {
+  //       _handleInvalidPermissions(permissionStatus);
+  //     }
+  //   } catch (e) {
+  //     print("Error picking contact: $e");
+  //     _showValidationError(
+  //         "Unable to pick contact. Please enter details manually.");
+  //   }
+  // }
 
   Future<PermissionStatus> _getContactPermission() async {
     PermissionStatus permission = await Permission.contacts.status;

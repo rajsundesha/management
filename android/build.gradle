@@ -1,3 +1,57 @@
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = "../build"
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+// }
+// subprojects {
+//     project.evaluationDependsOn(":app")
+// }
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
+// dependencies {
+//     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+//     implementation platform('com.google.firebase:firebase-bom:30.0.0')
+//     implementation 'com.google.firebase:firebase-messaging'
+//     implementation 'com.google.firebase:firebase-analytics'
+// }
+
+// apply plugin: 'com.google.gms.google-services'
+
+// buildscript {
+//     ext.kotlin_version = '1.9.10'
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.1.2'
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath 'com.google.gms:google-services:4.4.2'
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = '../build'
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
 allprojects {
     repositories {
         google()
@@ -5,23 +59,203 @@ allprojects {
     }
 }
 
-rootProject.buildDir = "../build"
+rootProject.buildDir = '../build'
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
 subprojects {
-    project.evaluationDependsOn(":app")
+    project.evaluationDependsOn(':app')
 }
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
+// buildscript {
+//     ext.kotlin_version = '1.9.10'
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
 
-dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
-    implementation platform('com.google.firebase:firebase-bom:30.0.0')
-    implementation 'com.google.firebase:firebase-messaging'
-    implementation 'com.google.firebase:firebase-analytics'
-}
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.1.2'
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath 'com.google.gms:google-services:4.4.2'
+//     }
+// }
 
-apply plugin: 'com.google.gms.google-services'
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = '../build'
+
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+//     project.evaluationDependsOn(':app')
+
+//     afterEvaluate { project ->
+//         if (project.hasProperty('android')) {
+//             android {
+//                 compileSdkVersion 34
+//                 defaultConfig {
+//                     targetSdkVersion 34
+//                     minSdkVersion 21
+//                 }
+//             }
+//         }
+//     }
+// }
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+// buildscript {
+//     ext.kotlin_version = '1.9.10'
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.1.2'
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath 'com.google.gms:google-services:4.4.2'
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = '../build'
+
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+//     project.evaluationDependsOn(':app')
+// }
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
+// buildscript {
+//     ext.kotlin_version = '1.9.10' // Define Kotlin version here
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.1.2'
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath 'com.google.gms:google-services:4.4.2' // Google Services plugin
+//     }
+// }
+
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = '../build'
+
+// // android {
+// //    namespace 'io.flutter.plugins.firebase.storage'
+// //    namespace 'com.crazecoder.openfile'
+// // }
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+// }
+// subprojects {
+//     project.evaluationDependsOn(':app')
+// }
+// // project(':contacts_service') {
+// //     android {
+// //         namespace 'flutter.plugins.contactsservice.contactsservice'
+// //     }
+// // }
+// // subprojects {
+// //     afterEvaluate {project ->
+// //         if (project.hasProperty('android')) {
+// //             android {
+// //                 namespace project.name.startsWith(':') ? project.name.substring(1) : project.name
+// //             }
+// //         }
+// //     }
+// // }
+// // subprojects {
+// //     project.configurations.all {
+// //         resolutionStrategy.eachDependency { details ->
+// //             if (details.requested.group == 'androidx.core' && !details.requested.name.contains('androidx')) {
+// //                 details.useVersion "1.6.0"
+// //             }
+// //         }
+// //     }
+// //     afterEvaluate { project ->
+// //         if (project.hasProperty('android')) {
+// //             android {
+// //                 compileSdkVersion 33
+// //                 defaultConfig {
+// //                     targetSdkVersion 33
+// //                 }
+// //             }
+// //         }
+// //     }
+// // }
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
+// buildscript {
+//     ext.kotlin_version = '1.7.1' // or the latest stable version
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+//     dependencies {
+//         classpath 'com.android.tools.build:gradle:8.5.1' // Ensure this matches your project requirements
+//         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+//         classpath 'com.google.gms:google-services:4.4.2' // or the latest version
+//         // implementation platform('com.google.firebase:firebase-bom:30.0.0')
+//         // implementation 'com.google.firebase:firebase-messaging'
+//         // implementation 'com.google.firebase:firebase-analytics'
+//     }
+// }
+
+
+// allprojects {
+//     repositories {
+//         google()
+//         mavenCentral()
+//     }
+// }
+
+// rootProject.buildDir = "../build"
+// subprojects {
+//     project.buildDir = "${rootProject.buildDir}/${project.name}"
+// }
+// subprojects {
+//     project.evaluationDependsOn(":app")
+// }
+
+// tasks.register("clean", Delete) {
+//     delete rootProject.buildDir
+// }
+
+// // dependencies {
+// //     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
+// //     implementation platform('com.google.firebase:firebase-bom:30.0.0')
+// //     implementation 'com.google.firebase:firebase-messaging'
+// //     implementation 'com.google.firebase:firebase-analytics'
+// // }
+
+// apply plugin: 'com.google.gms.google-services'

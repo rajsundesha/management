@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:contacts_service/contacts_service.dart';
+// import 'package:contacts_service/contacts_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../providers/request_provider.dart';
 import '../../providers/inventory_provider.dart';
@@ -342,10 +342,10 @@ class _EditManagerRequestBottomSheetState
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.contact_phone),
-                  onPressed: _pickContact,
-                ),
+                // IconButton(
+                //   icon: Icon(Icons.contact_phone),
+                //   onPressed: _pickContact,
+                // ),
               ],
             ),
             SizedBox(height: 16),
@@ -447,23 +447,23 @@ class _EditManagerRequestBottomSheetState
     return true;
   }
 
-  Future<void> _pickContact() async {
-    final PermissionStatus permissionStatus = await _getContactPermission();
-    if (permissionStatus == PermissionStatus.granted) {
-      final Contact? contact = await ContactsService.openDeviceContactPicker();
-      if (contact != null) {
-        final phone = contact.phones?.firstWhere((phone) => phone.value != null,
-            orElse: () => Item(label: 'mobile', value: ''));
-        setState(() {
-          _pickerNameController.text = contact.displayName ?? '';
-          _pickerContactController.text =
-              phone?.value?.replaceAll(RegExp(r'\D'), '') ?? '';
-        });
-      }
-    } else {
-      _handleInvalidPermissions(permissionStatus);
-    }
-  }
+  // Future<void> _pickContact() async {
+  //   final PermissionStatus permissionStatus = await _getContactPermission();
+  //   if (permissionStatus == PermissionStatus.granted) {
+  //     final Contact? contact = await ContactsService.openDeviceContactPicker();
+  //     if (contact != null) {
+  //       final phone = contact.phones?.firstWhere((phone) => phone.value != null,
+  //           orElse: () => Item(label: 'mobile', value: ''));
+  //       setState(() {
+  //         _pickerNameController.text = contact.displayName ?? '';
+  //         _pickerContactController.text =
+  //             phone?.value?.replaceAll(RegExp(r'\D'), '') ?? '';
+  //       });
+  //     }
+  //   } else {
+  //     _handleInvalidPermissions(permissionStatus);
+  //   }
+  // }
 
   Future<PermissionStatus> _getContactPermission() async {
     PermissionStatus permission = await Permission.contacts.status;

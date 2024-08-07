@@ -1,3 +1,4 @@
+import 'package:dhavla_road_project/providers/request_provider.dart';
 import 'package:dhavla_road_project/screens/manager/manager_stock_request_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -122,10 +123,43 @@ class ManagerDashboard extends StatelessWidget {
     );
   }
 
+  // Widget _buildDashboardCard(
+  //     BuildContext context, String title, IconData icon, VoidCallback onTap) {
+  //   return GestureDetector(
+  //     onTap: onTap,
+  //     child: Card(
+  //       elevation: 4,
+  //       child: Padding(
+  //         padding: const EdgeInsets.all(16.0),
+  //         child: Column(
+  //           mainAxisAlignment: MainAxisAlignment.center,
+  //           children: [
+  //             Icon(icon, size: 48),
+  //             SizedBox(height: 16),
+  //             Text(
+  //               title,
+  //               textAlign: TextAlign.center,
+  //               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+  //             ),
+  //           ],
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
   Widget _buildDashboardCard(
       BuildContext context, String title, IconData icon, VoidCallback onTap) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: () {
+        try {
+          onTap();
+        } catch (e) {
+          print("Error navigating to $title: $e");
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error opening $title. Please try again.')),
+          );
+        }
+      },
       child: Card(
         elevation: 4,
         child: Padding(
@@ -147,20 +181,97 @@ class ManagerDashboard extends StatelessWidget {
     );
   }
 
+  // Widget _buildNotificationIcon() {
+  //   return Consumer2<AuthProvider, NotificationProvider>(
+  //     builder: (context, authProvider, notificationProvider, child) {
+  //       final userId = authProvider.user?.uid ?? '';
+  //       final userRole = authProvider.role ??
+  //           'Manager'; // Replace 'User' with the appropriate default role for each dashboard
+  //       int unreadCount =
+  //           notificationProvider.getUnreadNotificationsCount(userId, userRole);
+  //       return Stack(
+  //         children: [
+  //           IconButton(
+  //             icon: Icon(Icons.notifications),
+  //             onPressed: () {
+  //               Navigator.push(
+  //                 context,
+  //                 MaterialPageRoute(
+  //                   builder: (context) => NotificationsScreen(),
+  //                 ),
+  //               );
+  //             },
+  //           ),
+  //           if (unreadCount > 0)
+  //             Positioned(
+  //               right: 0,
+  //               top: 0,
+  //               child: Container(
+  //                 padding: EdgeInsets.all(2),
+  //                 decoration: BoxDecoration(
+  //                   color: Colors.red,
+  //                   borderRadius: BorderRadius.circular(10),
+  //                 ),
+  //                 constraints: BoxConstraints(
+  //                   minWidth: 16,
+  //                   minHeight: 16,
+  //                 ),
+  //                 child: Text(
+  //                   '$unreadCount',
+  //                   style: TextStyle(
+  //                     color: Colors.white,
+  //                     fontSize: 10,
+  //                   ),
+  //                   textAlign: TextAlign.center,
+  //                 ),
+  //               ),
+  //             ),
+  //         ],
+  //       );
+  //     },
+  //   );
+  // }
   Widget _buildNotificationIcon() {
-    return Consumer<NotificationProvider>(
-      builder: (context, notificationProvider, child) {
-        int unreadCount = notificationProvider.unreadNotificationsCount;
+    return Consumer2<AuthProvider, NotificationProvider>(
+      builder: (context, authProvider, notificationProvider, child) {
+        final userId = authProvider.user?.uid ?? '';
+        final userRole = authProvider.role ?? 'Manager';
+        print(
+            "Building notification icon for user: $userId, role: $userRole"); // Debug print
+
+        int unreadCount =
+            notificationProvider.getUnreadNotificationsCount(userId, userRole);
+        print("Unread notifications count: $unreadCount"); // Debug print
+
         return Stack(
           children: [
             IconButton(
               icon: Icon(Icons.notifications),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (context) => NotificationsScreen()),
-                );
+              onPressed: () async {
+                print("Notification icon pressed"); // Debug print
+                try {
+                  // Refresh notifications before navigating
+                  await notificationProvider.fetchNotifications(
+                      userId, userRole);
+                  print("Notifications fetched successfully"); // Debug print
+
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => NotificationsScreen(),
+                    ),
+                  ).then((_) {
+                    // Refresh the unread count after returning from NotificationsScreen
+                    notificationProvider.fetchNotifications(userId, userRole);
+                  });
+                } catch (e) {
+                  print("Error fetching notifications: $e"); // Debug print
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(
+                            'Error loading notifications. Please try again.')),
+                  );
+                }
               },
             ),
             if (unreadCount > 0)
@@ -193,6 +304,27 @@ class ManagerDashboard extends StatelessWidget {
     );
   }
 
+  // void _logout(BuildContext context) async {
+  //   showDialog(
+  //     context: context,
+  //     barrierDismissible: false,
+  //     builder: (BuildContext context) {
+  //       return Center(child: CircularProgressIndicator());
+  //     },
+  //   );
+
+  //   try {
+  //     await Provider.of<AuthProvider>(context, listen: false).logout();
+  //     Navigator.of(context).pop(); // Dismiss the loading indicator
+  //     Navigator.of(context).pushReplacementNamed('/login');
+  //   } catch (e) {
+  //     Navigator.of(context).pop(); // Dismiss the loading indicator
+  //     print("Error during logout: $e");
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text('Error logging out. Please try again.')),
+  //     );
+  //   }
+  // }
   void _logout(BuildContext context) async {
     showDialog(
       context: context,
@@ -203,6 +335,8 @@ class ManagerDashboard extends StatelessWidget {
     );
 
     try {
+      await Provider.of<RequestProvider>(context, listen: false)
+          .cancelListeners();
       await Provider.of<AuthProvider>(context, listen: false).logout();
       Navigator.of(context).pop(); // Dismiss the loading indicator
       Navigator.of(context).pushReplacementNamed('/login');
