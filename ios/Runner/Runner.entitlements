@@ -4,9 +4,7 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- <key>com.apple.developer.contacts.read</key>
- <true/>
- <key>com.apple.developer.contacts.notes</key> -->
- <true/>
+ <!-- <key>com.apple.developer.contacts.notes</key>
+    <true/> -->
 </dict>
 </plist>

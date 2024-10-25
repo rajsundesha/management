@@ -6,6 +6,7 @@ import 'package:dhavla_road_project/screens/admin/account_deletion_requests_scre
 import 'package:dhavla_road_project/screens/admin/manage_location_screen.dart';
 import 'package:dhavla_road_project/screens/common/Notification_test_screen.dart';
 import 'package:dhavla_road_project/screens/common/global_keys.dart';
+import 'package:dhavla_road_project/screens/common/listener_manager.dart';
 import 'package:dhavla_road_project/screens/common/request_details_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -33,7 +34,6 @@ import 'screens/user/edit_profile_screen.dart';
 import 'screens/user/user_dashboard.dart';
 import 'screens/manager/manager_dashboard.dart';
 import 'screens/manager/manager_inventory_screen.dart';
-import 'screens/manager/manager_pending_requests_screen.dart';
 import 'screens/manager/manager_approved_requests_screen.dart';
 import 'screens/manager/manager_completed_requests_screen.dart';
 import 'screens/manager/manager_statistics_screen.dart';
@@ -58,9 +58,14 @@ Future<void> main() async {
     await _initializeFirebaseMessaging();
     FirebaseFunctions.instanceFor(region: 'asia-south1');
 
-    final authProvider = app_auth.AuthProvider();
+    // Initialize the ListenerManager first
+    final listenerManager = ListenerManager();
+    final authProvider = app_auth.AuthProvider(listenerManager);
     final notificationProvider = NotificationProvider();
-    final inventoryProvider = InventoryProvider();
+
+// Now, pass the ListenerManager to the InventoryProvider
+    final inventoryProvider = InventoryProvider(listenerManager);
+    // final inventoryProvider = InventoryProvider();
 
     runApp(
       MultiProvider(
@@ -145,6 +150,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: navigatorKey, // Add this line
       title: 'Inventory Management',
+      debugShowCheckedModeBanner: false, // Add this line
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
@@ -175,8 +181,8 @@ class MyApp extends StatelessWidget {
         '/gate_man_dashboard': (context) => GateManDashboard(),
         '/manager_create_request': (context) => CreateManagerRequestScreen(),
         '/manager_inventory': (context) => ManagerInventoryScreen(),
-        '/manager_pending_requests': (context) =>
-            ManagerPendingRequestsScreen(),
+        // '/manager_pending_requests': (context) =>
+        //     ManagerPendingRequestsScreen(),
         '/manager_approved_requests': (context) =>
             ManagerApprovedRequestsScreen(),
         '/manager_completed_requests': (context) =>
@@ -297,10 +303,10 @@ class InitialAuthCheckScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return FutureBuilder(
       future: Provider.of<app_auth.AuthProvider>(context, listen: false)
-          .signOutIfUnauthorized(),
+          .signOutIfUnauthorized(context), // Pass the context here
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return LoadingScreen();
+          return LoadingScreen(); // Show loading screen while waiting
         }
         // After the check, navigate to AuthWrapper
         return AuthWrapper();
@@ -308,6 +314,23 @@ class InitialAuthCheckScreen extends StatelessWidget {
     );
   }
 }
+
+// class InitialAuthCheckScreen extends StatelessWidget {
+//   @override
+//   Widget build(BuildContext context) {
+//     return FutureBuilder(
+//       future: Provider.of<app_auth.AuthProvider>(context, listen: false)
+//           .signOutIfUnauthorized(),
+//       builder: (context, snapshot) {
+//         if (snapshot.connectionState == ConnectionState.waiting) {
+//           return LoadingScreen();
+//         }
+//         // After the check, navigate to AuthWrapper
+//         return AuthWrapper();
+//       },
+//     );
+//   }
+// }
 
 class AuthWrapper extends StatelessWidget {
   @override
@@ -368,4 +391,3 @@ class HomeScreen extends StatelessWidget {
     );
   }
 }
-

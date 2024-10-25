@@ -1,7 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../providers/request_provider.dart';
+import '../../providers/auth_provider.dart' as app_auth;
 import 'package:flutter_slidable/flutter_slidable.dart';
 
 class CompletedRequestsScreen extends StatefulWidget {
@@ -14,8 +16,35 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  String _formatDate(dynamic timestamp) {
+    if (timestamp is Timestamp) {
+      return DateFormat('MMM d, yyyy h:mm a').format(timestamp.toDate());
+    } else if (timestamp is DateTime) {
+      return DateFormat('MMM d, yyyy h:mm a').format(timestamp);
+    } else if (timestamp is String) {
+      return timestamp; // It's already formatted
+    }
+    return 'Unknown date';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final authProvider =
+        Provider.of<app_auth.AuthProvider>(context, listen: false);
+    final requestProvider =
+        Provider.of<RequestProvider>(context, listen: false);
+    final userEmail = authProvider.currentUserEmail;
+    final userRole = authProvider.role;
+
+    if (userEmail == null || userRole == null) {
+      print('Error: User information not available. Please log in again.');
+      return Scaffold(
+        body: Center(
+          child: Text('Please log in to view completed requests.'),
+        ),
+      );
+    }
+
     return Scaffold(
       body: CustomScrollView(
         slivers: [
@@ -23,7 +52,7 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
           SliverToBoxAdapter(
             child: _buildSearchBar(),
           ),
-          _buildCompletedRequestsList(),
+          _buildCompletedRequestsList(requestProvider, userEmail, userRole),
         ],
       ),
     );
@@ -89,27 +118,40 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
     );
   }
 
-  Widget _buildCompletedRequestsList() {
-    return Consumer<RequestProvider>(
-      builder: (context, requestProvider, child) {
-        final now = DateTime.now();
-        final sevenDaysAgo = now.subtract(Duration(days: 7));
-        final completedRequests = requestProvider.requests
+  Widget _buildCompletedRequestsList(
+      RequestProvider requestProvider, String userEmail, String userRole) {
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream:
+          requestProvider.getRecentFulfilledRequestsStream(userEmail, userRole),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return SliverFillRemaining(
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.hasError) {
+          print('Error fetching completed requests: ${snapshot.error}');
+          return SliverFillRemaining(
+            child: Center(child: Text('Unable to load completed requests.')),
+          );
+        }
+
+        final completedRequests = snapshot.data ?? [];
+        final filteredRequests = completedRequests
             .where((request) =>
-                request['status'] == 'fulfilled' &&
-                (request['timestamp'] as DateTime).isAfter(sevenDaysAgo) &&
-                (_searchQuery.isEmpty ||
-                    request['pickerName']
-                        .toString()
-                        .toLowerCase()
-                        .contains(_searchQuery.toLowerCase()) ||
-                    request['pickerContact']
-                        .toString()
-                        .toLowerCase()
-                        .contains(_searchQuery.toLowerCase())))
+                _searchQuery.isEmpty ||
+                (request['pickerName'] as String?)
+                        ?.toLowerCase()
+                        .contains(_searchQuery.toLowerCase()) ==
+                    true ||
+                (request['pickerContact'] as String?)
+                        ?.toLowerCase()
+                        .contains(_searchQuery.toLowerCase()) ==
+                    true)
             .toList();
 
-        if (completedRequests.isEmpty) {
+        if (filteredRequests.isEmpty) {
           return SliverFillRemaining(
             child: Center(
               child: Column(
@@ -135,10 +177,10 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
         return SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, index) {
-              final request = completedRequests[index];
+              final request = filteredRequests[index];
               return _buildRequestCard(request);
             },
-            childCount: completedRequests.length,
+            childCount: filteredRequests.length,
           ),
         );
       },
@@ -146,9 +188,7 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
   }
 
   Widget _buildRequestCard(Map<String, dynamic> request) {
-    final DateTime timestamp = request['timestamp'] as DateTime;
-    final String formattedDate =
-        DateFormat('dd/MM/yyyy hh:mm a').format(timestamp);
+    final String formattedDate = _formatDate(request['fulfilledAt']);
 
     return Slidable(
       endActionPane: ActionPane(
@@ -168,17 +208,17 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
         child: ListTile(
           contentPadding: EdgeInsets.all(16),
           title: Text(
-            request['pickerName'],
+            request['pickerName'] ?? 'Unknown',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
           ),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(height: 8),
-              Text('Location: ${request['location']}'),
-              Text('Contact: ${request['pickerContact']}'),
+              Text('Location: ${request['location'] ?? 'Unknown'}'),
+              Text('Contact: ${request['pickerContact'] ?? 'Unknown'}'),
               Text('Completed On: $formattedDate'),
-              Text('Items: ${request['items'].length} items'),
+              Text('Items: ${(request['items'] as List?)?.length ?? 0} items'),
             ],
           ),
           leading: CircleAvatar(
@@ -230,15 +270,17 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
                           TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 16),
-                    _buildDetailItem('Picker', request['pickerName']),
-                    _buildDetailItem('Location', request['location']),
-                    _buildDetailItem('Contact', request['pickerContact']),
-                    _buildDetailItem('Status', request['status']),
-                    _buildDetailItem('Unique Code', request['uniqueCode']),
                     _buildDetailItem(
-                        'Completed On',
-                        DateFormat('dd/MM/yyyy hh:mm a')
-                            .format(request['timestamp'])),
+                        'Picker', request['pickerName'] ?? 'Unknown'),
+                    _buildDetailItem(
+                        'Location', request['location'] ?? 'Unknown'),
+                    _buildDetailItem(
+                        'Contact', request['pickerContact'] ?? 'Unknown'),
+                    _buildDetailItem('Status', request['status'] ?? 'Unknown'),
+                    _buildDetailItem(
+                        'Unique Code', request['uniqueCode'] ?? 'Unknown'),
+                    _buildDetailItem(
+                        'Completed On', _formatDate(request['fulfilledAt'])),
                     SizedBox(height: 16),
                     Text(
                       'Items',
@@ -246,11 +288,11 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     SizedBox(height: 8),
-                    ...(request['items'] as List<dynamic>)
+                    ...(request['items'] as List<dynamic>? ?? [])
                         .map((item) => Padding(
                               padding: const EdgeInsets.symmetric(vertical: 4),
                               child: Text(
-                                  '${item['quantity']} ${item['unit']} of ${item['name']}'),
+                                  '${item['quantity'] ?? 0} ${item['unit'] ?? 'pcs'} of ${item['name'] ?? 'Unknown Item'}'),
                             )),
                   ],
                 ),
@@ -289,293 +331,3 @@ class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
     super.dispose();
   }
 }
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import 'package:intl/intl.dart';
-// import '../../providers/request_provider.dart';
-
-// class CompletedRequestsScreen extends StatefulWidget {
-//   @override
-//   _CompletedRequestsScreenState createState() =>
-//       _CompletedRequestsScreenState();
-// }
-
-// class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
-//   final TextEditingController _searchController = TextEditingController();
-//   String _searchQuery = '';
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Completed Requests'),
-//         bottom: PreferredSize(
-//           preferredSize: Size.fromHeight(kToolbarHeight),
-//           child: Padding(
-//             padding: const EdgeInsets.all(8.0),
-//             child: TextField(
-//               controller: _searchController,
-//               decoration: InputDecoration(
-//                 hintText: 'Search by picker name or contact number',
-//                 border: OutlineInputBorder(),
-//                 prefixIcon: Icon(Icons.search),
-//                 suffixIcon: IconButton(
-//                   icon: Icon(Icons.clear),
-//                   onPressed: () {
-//                     _searchController.clear();
-//                     setState(() {
-//                       _searchQuery = '';
-//                     });
-//                   },
-//                 ),
-//               ),
-//               onChanged: (value) {
-//                 setState(() {
-//                   _searchQuery = value;
-//                 });
-//               },
-//             ),
-//           ),
-//         ),
-//       ),
-//       body: Consumer<RequestProvider>(
-//         builder: (context, requestProvider, child) {
-//           final now = DateTime.now();
-//           final sevenDaysAgo = now.subtract(Duration(days: 7));
-//           final completedRequests = requestProvider.requests
-//               .where((request) =>
-//                   request['status'] == 'fulfilled' &&
-//                   (request['timestamp'] as DateTime).isAfter(sevenDaysAgo) &&
-//                   (_searchQuery.isEmpty ||
-//                       request['pickerName']
-//                           .toString()
-//                           .toLowerCase()
-//                           .contains(_searchQuery.toLowerCase()) ||
-//                       request['pickerContact']
-//                           .toString()
-//                           .toLowerCase()
-//                           .contains(_searchQuery.toLowerCase())))
-//               .toList();
-
-//           if (completedRequests.isEmpty) {
-//             return Center(
-//               child: Text('No completed requests in the last 7 days.'),
-//             );
-//           }
-
-//           return ListView.builder(
-//             itemCount: completedRequests.length,
-//             itemBuilder: (context, index) {
-//               final request = completedRequests[index];
-//               final items = request['items'];
-//               final itemCount = items.length;
-
-//               final DateTime timestamp = request['timestamp'] as DateTime;
-//               final String formattedDate =
-//                   DateFormat('dd/MM/yyyy hh:mm a').format(timestamp);
-
-//               return Card(
-//                 child: ExpansionTile(
-//                   title: Text('Picker: ${request['pickerName']}'),
-//                   subtitle: Text(
-//                     'Location: ${request['location']}\n'
-//                     'Contact: ${request['pickerContact']}\n'
-//                     'Status: ${request['status']}\n'
-//                     'Unique Code: ${request['uniqueCode']}\n'
-//                     'Completed On: $formattedDate\n'
-//                     'Items: $itemCount items',
-//                   ),
-//                   leading: Icon(
-//                     Icons.check_circle,
-//                     color: Colors.green,
-//                   ),
-//                   children: items.map<Widget>((item) {
-//                     return ListTile(
-//                       title: Text(
-//                           '${item['quantity']} ${item['unit']} of ${item['name']}'),
-//                     );
-//                   }).toList(),
-//                 ),
-//               );
-//             },
-//           );
-//         },
-//       ),
-//     );
-//   }
-
-//   @override
-//   void dispose() {
-//     _searchController.dispose();
-//     super.dispose();
-//   }
-// }
-
-
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import 'package:intl/intl.dart';
-// import '../../providers/request_provider.dart';
-
-// class CompletedRequestsScreen extends StatefulWidget {
-//   @override
-//   _CompletedRequestsScreenState createState() =>
-//       _CompletedRequestsScreenState();
-// }
-
-// class _CompletedRequestsScreenState extends State<CompletedRequestsScreen> {
-//   final TextEditingController _searchController = TextEditingController();
-//   String _searchQuery = '';
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Completed Requests'),
-//         bottom: PreferredSize(
-//           preferredSize: Size.fromHeight(kToolbarHeight),
-//           child: Padding(
-//             padding: const EdgeInsets.all(8.0),
-//             child: TextField(
-//               controller: _searchController,
-//               decoration: InputDecoration(
-//                 hintText: 'Search by picker name or contact number',
-//                 border: OutlineInputBorder(),
-//                 prefixIcon: Icon(Icons.search),
-//                 suffixIcon: IconButton(
-//                   icon: Icon(Icons.clear),
-//                   onPressed: () {
-//                     _searchController.clear();
-//                     setState(() {
-//                       _searchQuery = '';
-//                     });
-//                   },
-//                 ),
-//               ),
-//               onChanged: (value) {
-//                 setState(() {
-//                   _searchQuery = value;
-//                 });
-//               },
-//             ),
-//           ),
-//         ),
-//       ),
-//       body: Consumer<RequestProvider>(
-//         builder: (context, requestProvider, child) {
-//           final now = DateTime.now();
-//           final sevenDaysAgo = now.subtract(Duration(days: 7));
-//           final completedRequests = requestProvider.requests
-//               .where((request) =>
-//                   request['status'] == 'fulfilled' &&
-//                   (request['timestamp'] as DateTime).isAfter(sevenDaysAgo) &&
-//                   (_searchQuery.isEmpty ||
-//                       request['pickerName']
-//                           .toString()
-//                           .toLowerCase()
-//                           .contains(_searchQuery.toLowerCase()) ||
-//                       request['pickerContact']
-//                           .toString()
-//                           .toLowerCase()
-//                           .contains(_searchQuery.toLowerCase())))
-//               .toList();
-
-//           if (completedRequests.isEmpty) {
-//             return Center(
-//               child: Text('No completed requests in the last 7 days.'),
-//             );
-//           }
-
-//           return ListView.builder(
-//             itemCount: completedRequests.length,
-//             itemBuilder: (context, index) {
-//               final request = completedRequests[index];
-//               final items = request['items'];
-//               final itemCount = items.length;
-
-//               final DateTime timestamp = request['timestamp'] as DateTime;
-//               final String formattedDate =
-//                   DateFormat('dd/MM/yyyy hh:mm a').format(timestamp);
-
-//               return Card(
-//                 child: ExpansionTile(
-//                   title: Text('Items: $itemCount items'),
-//                   subtitle: Text(
-//                     'Location: ${request['location']}\n'
-//                     'Picker: ${request['pickerName']}\n'
-//                     'Contact: ${request['pickerContact']}\n'
-//                     'Status: ${request['status']}\n'
-//                     'Unique Code: ${request['uniqueCode']}\n'
-//                     'Completed On: $formattedDate',
-//                   ),
-//                   leading: Icon(
-//                     Icons.check_circle,
-//                     color: Colors.green,
-//                   ),
-//                   children: items.map<Widget>((item) {
-//                     return ListTile(
-//                       title: Text(
-//                           '${item['quantity']} ${item['unit']} of ${item['name']}'),
-//                     );
-//                   }).toList(),
-//                 ),
-//               );
-//             },
-//           );
-//         },
-//       ),
-//     );
-//   }
-
-//   @override
-//   void dispose() {
-//     _searchController.dispose();
-//     super.dispose();
-//   }
-// }
-
-
-// import 'package:flutter/material.dart';
-// import 'package:provider/provider.dart';
-// import '../../providers/request_provider.dart';
-
-// class CompletedRequestsScreen extends StatelessWidget {
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Completed Requests'),
-//       ),
-//       body: Consumer<RequestProvider>(
-//         builder: (context, requestProvider, child) {
-//           return ListView.builder(
-//             itemCount: requestProvider.requests.length,
-//             itemBuilder: (context, index) {
-//               if (requestProvider.requests[index]['status'] != 'fulfilled') {
-//                 return Container();
-//               }
-//               return Card(
-//                 child: ListTile(
-//                   title: Text(
-//                     'Items: ${requestProvider.requests[index]['items'].map((item) => '${item['quantity']} ${item['unit']} of ${item['name']}').join(', ')}',
-//                   ),
-//                   subtitle: Text(
-//                     'Location: ${requestProvider.requests[index]['location']}\n'
-//                     'Picker: ${requestProvider.requests[index]['pickerName']}\n'
-//                     'Contact: ${requestProvider.requests[index]['pickerContact']}\n'
-//                     'Status: ${requestProvider.requests[index]['status']}\n'
-//                     'Unique Code: ${requestProvider.requests[index]['uniqueCode']}',
-//                   ),
-//                   leading: Icon(
-//                     Icons.check_circle,
-//                     color: Colors.green,
-//                   ),
-//                 ),
-//               );
-//             },
-//           );
-//         },
-//       ),
-//     );
-//   }
-// }

@@ -37,13 +37,27 @@
 	<false/>
 	<key>FirebaseMessagingAutoInitEnabled</key>
 	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>sms</string>
+		<string>tel</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-
+	<key>NSContactsUsageDescription</key>
+	<string>This app accesses your contacts to allow you to easily select a picker when creating a new inventory request. For example, you can quickly choose a contact as the picker without having to manually enter their name and phone number. Your contacts are only used within the app and are not stored or shared elsewhere</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>We need your permission to access the documents folder.</string>
+<key>NSMicrophoneUsageDescription</key>
+<string>This app uses the microphone to enable speech-to-text functionality, allowing you to search for inventory items by voice. For example, you can say "Search for hammers" to quickly find items without typing.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>We need your permission to access the photo library.</string>
+<string>This app requires access to the photo library for uploading inventory images.</string>
+	<key>NSCameraUsageDescription</key>
+<string>This app requires access to the camera for taking inventory images.</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>We need access to add photos to your library.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>This application needs the speech recognition permission</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
@@ -55,31 +69,12 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
-		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-		
 	</array>
-	<key>NSContactsUsageDescription</key>
-<string>This app requires contacts access to allow you to select a contact for the picker information.</string>
-	<key>NSMicrophoneUsageDescription</key>
-<string>This application needs to access your microphone</string>
-<key>NSSpeechRecognitionUsageDescription</key>
-<string>This application needs the speech recognition permission</string>
-<key>LSApplicationQueriesSchemes</key>
-<array>
-  <string>sms</string>
-  <string>tel</string>
-</array>
 </dict>
 </plist>

@@ -1,11 +1,21 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:contacts_service/contacts_service.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_typeahead/flutter_typeahead.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:intl/intl.dart';
+import 'package:app_settings/app_settings.dart';
 import '../../providers/request_provider.dart';
 import '../../providers/inventory_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/location_provider.dart';
 
 class CreateManagerRequestScreen extends StatefulWidget {
   @override
@@ -13,30 +23,65 @@ class CreateManagerRequestScreen extends StatefulWidget {
       _CreateManagerRequestScreenState();
 }
 
-class _CreateManagerRequestScreenState
-    extends State<CreateManagerRequestScreen> {
-  final Map<String, int> _selectedItems = {};
+class _CreateManagerRequestScreenState extends State<CreateManagerRequestScreen>
+    with SingleTickerProviderStateMixin {
+  final Map<String, Map<String, dynamic>> _selectedItems = {};
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _pickerNameController = TextEditingController();
   final TextEditingController _pickerContactController =
       TextEditingController();
   final TextEditingController _noteController = TextEditingController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
 
-  String _selectedLocation = 'Default Location';
-  String _selectedCategory = 'All';
-  List<String> _locations = ['Default Location', 'Location 1', 'Location 2'];
+  String _selectedLocation = '';
+  String? _selectedCategory;
+  String? _selectedSubcategory;
+  String? _selectedSubSubcategory;
   bool _isLoading = false;
+  bool _isListening = false;
+
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _fetchInventoryItems());
+    _initializeSpeech();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchInventoryItems();
+      _fetchLocations();
+    });
+  }
+
+  Future<void> _initializeSpeech() async {
+    bool available = await _speech.initialize(
+      onStatus: (status) => print('Speech recognition status: $status'),
+      onError: (errorNotification) =>
+          print('Speech recognition error: $errorNotification'),
+    );
+    if (available) {
+      setState(() => _isListening = false);
+    } else {
+      print("The user has denied the use of speech recognition.");
+    }
   }
 
   Future<void> _fetchInventoryItems() async {
     setState(() => _isLoading = true);
     try {
-      await Provider.of<InventoryProvider>(context, listen: false).fetchItems();
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final isAdminOrManager =
+          authProvider.role == 'Admin' || authProvider.role == 'Manager';
+      await Provider.of<InventoryProvider>(context, listen: false)
+          .fetchItems(isAdminOrManager: isAdminOrManager);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error fetching inventory items: $e')),
@@ -46,417 +91,985 @@ class _CreateManagerRequestScreenState
     }
   }
 
+  Future<void> _fetchLocations() async {
+    try {
+      final locationProvider =
+          Provider.of<LocationProvider>(context, listen: false);
+      await locationProvider.fetchLocations();
+    } catch (e) {
+      print('Error fetching locations in CreateManagerRequestScreen: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error fetching locations: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Create New Request')),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildSearchBar(),
-                    SizedBox(height: 16),
-                    Text('Categories',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    SizedBox(height: 8),
-                    _buildCategoryList(),
-                    SizedBox(height: 16),
-                    Text('Inventory List',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    SizedBox(height: 8),
-                    _buildInventoryList(),
-                    SizedBox(height: 16),
-                    Text('Selected Items',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    SizedBox(height: 8),
-                    _buildSelectedItemsList(),
-                    SizedBox(height: 16),
-                    _buildSendRequestButton(),
-                  ],
-                ),
+      body: CustomScrollView(
+        slivers: [
+          _buildSliverAppBar(),
+          SliverToBoxAdapter(
+            child: _isLoading
+                ? Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      _buildSearchBar(),
+                      _buildCategorySelector(),
+                      if (_selectedCategory != null)
+                        _buildSubcategorySelector(),
+                      if (_selectedSubcategory != null)
+                        _buildSubSubcategorySelector(),
+                      _buildQuickAddGrid(),
+                      _buildInventoryList(),
+                      _buildSelectedItemsList(),
+                      SizedBox(height: 80),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+      floatingActionButton: _buildFloatingActionButton(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+    );
+  }
+
+  Widget _buildSliverAppBar() {
+    return SliverAppBar(
+      expandedHeight: 200.0,
+      floating: false,
+      pinned: true,
+      flexibleSpace: FlexibleSpaceBar(
+        title: AnimatedTextKit(
+          animatedTexts: [
+            TypewriterAnimatedText(
+              'Create New Request',
+              textStyle: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20.0,
               ),
+              speed: Duration(milliseconds: 100),
             ),
+          ],
+          totalRepeatCount: 1,
+          pause: Duration(milliseconds: 1000),
+          displayFullTextOnTap: true,
+          stopPauseOnTap: true,
+        ),
+        background: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.blue.shade700, Colors.blue.shade900],
+            ),
+          ),
+          child: Center(
+            child: Icon(Icons.inventory,
+                size: 80, color: Colors.white.withOpacity(0.3)),
+          ),
+        ),
+      ),
     );
   }
 
   Widget _buildSearchBar() {
-    return TextField(
-      controller: _searchController,
-      decoration: InputDecoration(
-        labelText: 'Search',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.search),
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: TypeAheadField<Map<String, dynamic>>(
+              textFieldConfiguration: TextFieldConfiguration(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  labelText: 'Search and add items',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30)),
+                  prefixIcon: Icon(Icons.search),
+                ),
+              ),
+              suggestionsCallback: (pattern) async {
+                return await _getSuggestions(pattern);
+              },
+              itemBuilder: (context, suggestion) {
+                return ListTile(
+                  title: Text(suggestion['name']),
+                  subtitle: Text(
+                      '${suggestion['category']} - ${suggestion['subcategory']}'),
+                );
+              },
+              onSuggestionSelected: (suggestion) {
+                _quickAddItem(suggestion);
+                _searchController.clear();
+              },
+            ),
+          ),
+          IconButton(
+            icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+            onPressed: _toggleListening,
+          ),
+        ],
       ),
-      onChanged: (_) => setState(() {}),
     );
   }
 
-  Widget _buildCategoryList() {
+  Future<List<Map<String, dynamic>>> _getSuggestions(String pattern) async {
+    final inventoryProvider =
+        Provider.of<InventoryProvider>(context, listen: false);
+    return inventoryProvider.items
+        .where((item) =>
+            item['name'].toLowerCase().contains(pattern.toLowerCase()) ||
+            item['category'].toLowerCase().contains(pattern.toLowerCase()))
+        .toList();
+  }
+
+  void _toggleListening() {
+    if (!_isListening) {
+      bool available = _speech.isAvailable;
+      if (available) {
+        setState(() => _isListening = true);
+        _speech.listen(
+          onResult: (result) {
+            setState(() {
+              _searchController.text = result.recognizedWords;
+            });
+          },
+        );
+      }
+    } else {
+      setState(() => _isListening = false);
+      _speech.stop();
+    }
+  }
+
+  Widget _buildCategorySelector() {
     return Consumer<InventoryProvider>(
       builder: (context, inventoryProvider, _) {
-        Set<String> categories = {
-          'All',
-          ...inventoryProvider.items.map((item) => item['category'] as String)
-        };
-        return SizedBox(
-          height: 50,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            itemCount: categories.length,
+        Set<String> categories = inventoryProvider.items
+            .map((item) => item['category'] as String)
+            .toSet();
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Category',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: categories.map((category) {
+                  return ChoiceChip(
+                    label: Text(category),
+                    selected: _selectedCategory == category,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedCategory = selected ? category : null;
+                        _selectedSubcategory = null;
+                        _selectedSubSubcategory = null;
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubcategorySelector() {
+    return Consumer<InventoryProvider>(
+      builder: (context, inventoryProvider, _) {
+        Set<String> subcategories = inventoryProvider.items
+            .where((item) => item['category'] == _selectedCategory)
+            .map((item) => item['subcategory'] as String)
+            .toSet();
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Subcategory',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: subcategories.map((subcategory) {
+                  return ChoiceChip(
+                    label: Text(subcategory),
+                    selected: _selectedSubcategory == subcategory,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedSubcategory = selected ? subcategory : null;
+                        _selectedSubSubcategory = null;
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubSubcategorySelector() {
+    return Consumer<InventoryProvider>(
+      builder: (context, inventoryProvider, _) {
+        Set<String> subSubcategories = inventoryProvider.items
+            .where((item) =>
+                item['category'] == _selectedCategory &&
+                item['subcategory'] == _selectedSubcategory &&
+                item['subSubcategory'] != null)
+            .map((item) => item['subSubcategory'] as String)
+            .toSet();
+
+        if (subSubcategories.isEmpty) {
+          return SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Select Sub-subcategory',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: subSubcategories.map((subSubcategory) {
+                  return ChoiceChip(
+                    label: Text(subSubcategory),
+                    selected: _selectedSubSubcategory == subSubcategory,
+                    onSelected: (selected) {
+                      setState(() {
+                        _selectedSubSubcategory =
+                            selected ? subSubcategory : null;
+                      });
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildQuickAddGrid() {
+    return Consumer<InventoryProvider>(
+      builder: (context, inventoryProvider, _) {
+        List<Map<String, dynamic>> filteredItems =
+            inventoryProvider.items.where((item) {
+          bool isVisible =
+              !(item['isHidden'] == true || item['isDeadstock'] == true);
+          bool categoryMatch = _selectedCategory == null ||
+              item['category'] == _selectedCategory;
+          bool subcategoryMatch = _selectedSubcategory == null ||
+              item['subcategory'] == _selectedSubcategory;
+          bool subSubcategoryMatch = _selectedSubSubcategory == null ||
+              item['subSubcategory'] == _selectedSubSubcategory;
+          return isVisible &&
+              categoryMatch &&
+              subcategoryMatch &&
+              subSubcategoryMatch;
+        }).toList();
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              childAspectRatio: 2.5,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: filteredItems.length,
             itemBuilder: (context, index) {
-              String category = categories.elementAt(index);
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: ChoiceChip(
-                  label: Text(category),
-                  selected: _selectedCategory == category,
-                  onSelected: (_) =>
-                      setState(() => _selectedCategory = category),
+              Map<String, dynamic> item = filteredItems[index];
+              return Card(
+                elevation: 2,
+                child: InkWell(
+                  onTap: () => _quickAddItem(item),
+                  child: Center(
+                    child: Text(
+                      item['name'],
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 2,
+                    ),
+                  ),
                 ),
               );
             },
           ),
         );
       },
+    );
+  }
+
+  void _quickAddItem(Map<String, dynamic> item) {
+    setState(() {
+      String itemId = item['id'] as String;
+      bool isPipe = item['isPipe'] as bool? ?? false;
+
+      if (_selectedItems.containsKey(itemId)) {
+        if (isPipe) {
+          double pipeLength = item['pipeLength'] as double? ?? 1.0;
+          _selectedItems[itemId]!['pcs'] =
+              (_selectedItems[itemId]!['pcs'] as int? ?? 0) + 1;
+          _selectedItems[itemId]!['meters'] =
+              (_selectedItems[itemId]!['meters'] as double? ?? 0.0) +
+                  pipeLength;
+        } else {
+          _selectedItems[itemId]!['quantity'] =
+              (_selectedItems[itemId]!['quantity'] as int? ?? 0) + 1;
+        }
+      } else {
+        _selectedItems[itemId] = {
+          'isPipe': isPipe,
+          'name': item['name'] as String? ?? 'Unknown Item',
+          'unit': item['unit'] as String? ?? 'pc',
+          'category': item['category'] as String? ?? 'Uncategorized',
+          'subcategory': item['subcategory'] as String? ?? 'N/A',
+        };
+        if (isPipe) {
+          double pipeLength = item['pipeLength'] as double? ?? 1.0;
+          _selectedItems[itemId]!['pcs'] = 1;
+          _selectedItems[itemId]!['meters'] = pipeLength;
+          _selectedItems[itemId]!['pipeLength'] = pipeLength;
+        } else {
+          _selectedItems[itemId]!['quantity'] = 1;
+        }
+      }
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Added ${item['name'] ?? 'Item'} to the request'),
+        duration: Duration(seconds: 1),
+      ),
+    );
+    _animateFloatingActionButton();
+  }
+
+  Widget _buildSelectedItemsList() {
+    List<MapEntry<String, Map<String, dynamic>>> selectedItems =
+        _selectedItems.entries.where((entry) {
+      var item = entry.value;
+      final pcs = item['pcs'] as int? ?? 0;
+      final meters = item['meters'] as double? ?? 0.0;
+      final quantity = item['quantity'] as int? ?? 0;
+
+      return (item['isPipe'] == true && (pcs > 0 || meters > 0)) ||
+          (item['isPipe'] != true && quantity > 0);
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Text(
+            'Selected Items',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          itemCount: selectedItems.length,
+          itemBuilder: (context, index) {
+            String itemId = selectedItems[index].key;
+            Map<String, dynamic> itemData = selectedItems[index].value;
+            bool isPipe = itemData['isPipe'] ?? false;
+
+            return Slidable(
+              endActionPane: ActionPane(
+                motion: ScrollMotion(),
+                children: [
+                  SlidableAction(
+                    onPressed: (_) => isPipe
+                        ? _showEditPipeDialog(itemId, itemData)
+                        : _showEditQuantityDialog(
+                            itemId, itemData['quantity'] as int? ?? 0),
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    icon: Icons.edit,
+                    label: 'Edit',
+                  ),
+                  SlidableAction(
+                    onPressed: (_) {
+                      setState(() {
+                        _selectedItems.remove(itemId);
+                      });
+                      _animateFloatingActionButton();
+                    },
+                    backgroundColor: Colors.red,
+                    foregroundColor: Colors.white,
+                    icon: Icons.delete,
+                    label: 'Delete',
+                  ),
+                ],
+              ),
+              child: Card(
+                elevation: 2,
+                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    child: Icon(
+                        isPipe ? Icons.architecture : Icons.shopping_cart,
+                        color: Colors.white),
+                    backgroundColor: isPipe ? Colors.orange : Colors.green,
+                  ),
+                  title: Text(itemData['name'] ?? 'Unknown Item',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (isPipe)
+                        Text(
+                            'Pieces: ${itemData['pcs']}, Length: ${itemData['meters'].toStringAsFixed(2)} m')
+                      else
+                        Text(
+                            'Quantity: ${itemData['quantity']} ${itemData['unit']}'),
+                      Text(
+                          '${itemData['category']} - ${itemData['subcategory']}'),
+                    ],
+                  ),
+                  trailing: Icon(Icons.swipe_left, color: Colors.grey),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 
   Widget _buildInventoryList() {
     return Consumer<InventoryProvider>(
       builder: (context, inventoryProvider, _) {
-        List<Map<String, dynamic>> filteredItems = inventoryProvider.items
-            .where((item) =>
-                (_selectedCategory == 'All' ||
-                    item['category'] == _selectedCategory) &&
-                item['name']
-                    .toLowerCase()
-                    .contains(_searchController.text.toLowerCase()))
-            .toList();
+        List<Map<String, dynamic>> filteredItems =
+            inventoryProvider.items.where((item) {
+          bool isVisible =
+              !(item['isHidden'] == true || item['isDeadstock'] == true);
+          bool categoryMatch = _selectedCategory == null ||
+              item['category'] == _selectedCategory;
+          bool subcategoryMatch = _selectedSubcategory == null ||
+              item['subcategory'] == _selectedSubcategory;
+          bool subSubcategoryMatch = _selectedSubSubcategory == null ||
+              item['subSubcategory'] == _selectedSubcategory;
+          bool searchMatch = _searchController.text.isEmpty ||
+              item['name']
+                  .toLowerCase()
+                  .contains(_searchController.text.toLowerCase());
+          return isVisible &&
+              categoryMatch &&
+              subcategoryMatch &&
+              subSubcategoryMatch &&
+              searchMatch;
+        }).toList();
 
-        return SizedBox(
-          height: 200,
-          child: ListView.builder(
-            itemCount: filteredItems.length,
-            itemBuilder: (context, index) {
-              Map<String, dynamic> item = filteredItems[index];
-              return Card(
-                child: ListTile(
-                  leading: CircleAvatar(child: Icon(Icons.inventory)),
-                  title: Text(item['name'],
-                      style: TextStyle(fontWeight: FontWeight.bold)),
-                  trailing: _buildQuantityControls(item),
+        if (filteredItems.isEmpty) {
+          return Center(child: Text('No items available.'));
+        }
+
+        return ListView.builder(
+          shrinkWrap: true,
+          physics: NeverScrollableScrollPhysics(),
+          itemCount: filteredItems.length,
+          itemBuilder: (context, index) {
+            Map<String, dynamic> item = filteredItems[index];
+            bool isPipe = item['isPipe'] ?? false;
+            return Card(
+              elevation: 2,
+              margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: ListTile(
+                title: Text(
+                  item['name'],
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                 ),
-              );
-            },
-          ),
+                subtitle: Text('${item['category']} - ${item['subcategory']}'),
+                trailing: isPipe
+                    ? _buildPipeControls(item)
+                    : _buildQuantityControls(item),
+              ),
+            );
+          },
         );
       },
     );
   }
 
   Widget _buildQuantityControls(Map<String, dynamic> item) {
-    int quantity = _selectedItems[item['name']] ?? 0;
+    int quantity = _selectedItems[item['id']]?['quantity'] ?? 0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: Icon(Icons.remove),
+          icon: Icon(Icons.remove_circle_outline),
           onPressed: quantity > 0
-              ? () => _updateQuantity(item['name'], quantity - 1)
+              ? () => _updateQuantity(item['id'], quantity - 1, item)
               : null,
         ),
-        Text('$quantity ${item['unit']}'),
+        Text('$quantity ${item['unit']}',
+            style: TextStyle(fontWeight: FontWeight.bold)),
         IconButton(
-          icon: Icon(Icons.add),
-          onPressed: () => _updateQuantity(item['name'], quantity + 1),
+          icon: Icon(Icons.add_circle_outline),
+          onPressed: () => _updateQuantity(item['id'], quantity + 1, item),
         ),
       ],
     );
   }
 
-  void _updateQuantity(String itemName, int newQuantity) {
+  Widget _buildPipeControls(Map<String, dynamic> item) {
+    return ElevatedButton(
+      child: Text('Select'),
+      onPressed: () => _showPipeSelectionModal(item['id'], item),
+    );
+  }
+
+  void _showPipeSelectionModal(String itemId, Map<String, dynamic> itemData) {
+    final TextEditingController lengthController = TextEditingController(
+        text: (_selectedItems[itemId]?['meters'] ?? 0.0).toString());
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Select Pipe Length',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              SizedBox(height: 16),
+              TextField(
+                controller: lengthController,
+                decoration: InputDecoration(
+                  labelText: 'Length in meters',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.numberWithOptions(decimal: true),
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  double newLength =
+                      double.tryParse(lengthController.text) ?? 0.0;
+                  _updatePipeLength(itemId, newLength, itemData);
+                  Navigator.of(context).pop();
+                },
+                child: Text('Select'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Widget _buildSelectedItemsList() {
+  //   List<MapEntry<String, Map<String, dynamic>>> selectedItems = _selectedItems.entries.where((entry) {
+  //     var item = entry.value;
+  //     final pcs = item['pcs'] as int? ?? 0;
+  //     final meters = item['meters'] as double? ?? 0.0;
+  //     final quantity = item['quantity'] as int? ?? 0;
+
+  //     return (item['isPipe'] == true && (pcs > 0 || meters > 0)) || (item['isPipe'] != true && quantity > 0);
+  //   }).toList();
+
+  //   return Column(
+  //     crossAxisAlignment: CrossAxisAlignment.start,
+  //     children: [
+  //       Padding(
+  //         padding: const EdgeInsets.all(16.0),
+  //         child: Text(
+  //           'Selected Items',
+  //           style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+  //         ),
+  //       ),
+  //       ListView.builder(
+  //         shrinkWrap: true,
+  //         physics: NeverScrollableScrollPhysics(),
+  //         itemCount: selectedItems.length,
+  //         itemBuilder: (context, index) {
+  //           String itemId = selectedItems[index].key;
+  //           Map<String, dynamic> itemData = selectedItems[index].value;
+  //           bool isPipe = itemData['isPipe'] ?? false;
+
+  //           return Slidable(
+  //             endActionPane: ActionPane(
+  //               motion: ScrollMotion(),
+  //               children: [
+  //                 SlidableAction(
+  //                   onPressed: (_) => isPipe
+  //                       ? _showEditPipeDialog(itemId, itemData)
+  //                       : _showEditQuantityDialog(itemId, itemData['quantity'] as int? ?? 0),
+  //                   backgroundColor: Colors.blue,
+  //                   foregroundColor: Colors.white,
+  //                   icon: Icons.edit,
+  //                   label: 'Edit',
+  //                 ),
+  //                 SlidableAction(
+  //                   onPressed: (_) {
+  //                     setState(() {
+  //                       _selectedItems.remove(itemId);
+  //                     });
+  //                     _animateFloatingActionButton();
+  //                   },
+  //                   backgroundColor: Colors.red,
+  //                   foregroundColor: Colors.white,
+  //                   icon: Icons.delete,
+  //                   label: 'Delete',
+  //                 ),
+  //               ],
+  //             ),
+  //             child: Card(
+  //               elevation: 2,
+  //               margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+  //               child: ListTile(
+  //                 leading: CircleAvatar(
+  //                   child: Icon(isPipe ? Icons.architecture : Icons.shopping_cart, color: Colors.white),
+  //                   backgroundColor: isPipe ? Colors.orange : Colors.green,
+  //                 ),
+  //                 title: Text(itemData['name'] ?? 'Unknown Item', style: TextStyle(fontWeight: FontWeight.bold)),
+  //                 subtitle: Column(
+  //                   crossAxisAlignment: CrossAxisAlignment.start,
+  //                   children: [
+  //                     isPipe
+  //                         ? Text('Pieces: ${itemData['pcs']}, Length: ${itemData['meters'].toStringAsFixed(2)} m')
+  //                         : Text('Quantity: ${itemData['quantity']} ${itemData['unit']}'),
+  //                     Text('${itemData['category']} - ${itemData['subcategory']}'),
+  //                   ],
+  //                 ),
+  //                 trailing: Icon(Icons.swipe_left, color: Colors.grey),
+  //               ),
+  //             ),
+  //           );
+  //         },
+  //       ),
+  //     ],
+  //   );
+  // }
+
+  Widget _buildFloatingActionButton() {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _animation.value,
+          child: FloatingActionButton.extended(
+            onPressed: _selectedItems.isEmpty
+                ? null
+                : () => _showRequestDetailsDialog(context),
+            label: Text('Send Request'),
+            icon: Icon(Icons.send),
+            backgroundColor:
+                _selectedItems.isEmpty ? Colors.grey : Colors.blue.shade700,
+          ),
+        );
+      },
+    );
+  }
+
+  void _updateQuantity(
+      String itemId, int newQuantity, Map<String, dynamic> item) {
     setState(() {
       if (newQuantity > 0) {
-        _selectedItems[itemName] = newQuantity;
+        _selectedItems[itemId] = {
+          'quantity': newQuantity,
+          'isPipe': item['isPipe'] ?? false,
+          'name': item['name'],
+          'unit': item['unit'],
+          'category': item['category'],
+          'subcategory': item['subcategory'],
+        };
       } else {
-        _selectedItems.remove(itemName);
+        _selectedItems.remove(itemId);
       }
     });
+    _animateFloatingActionButton();
   }
 
-  Widget _buildSelectedItemsList() {
-    return SizedBox(
-      height: 200,
-      child: ListView.builder(
-        itemCount: _selectedItems.length,
-        itemBuilder: (context, index) {
-          String itemName = _selectedItems.keys.elementAt(index);
-          int quantity = _selectedItems[itemName]!;
-          return Card(
-            child: ListTile(
-              leading: CircleAvatar(child: Icon(Icons.inventory)),
-              title: Text('$itemName x $quantity'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.edit),
-                    onPressed: () =>
-                        _showEditQuantityDialog(itemName, quantity),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _updateQuantity(itemName, 0),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
+  void _updatePipeLength(
+      String itemId, double newLength, Map<String, dynamic> itemData) {
+    setState(() {
+      double pipeLength = itemData['pipeLength'] ?? 1.0;
+      int newPieces = (newLength / pipeLength).ceil();
+      _selectedItems[itemId] = {
+        ..._selectedItems[itemId] ?? {},
+        'pcs': newPieces,
+        'meters': newLength,
+        'isPipe': true,
+        'name': itemData['name'],
+        'unit': 'pcs',
+        'pipeLength': pipeLength,
+        'category': itemData['category'],
+        'subcategory': itemData['subcategory'],
+      };
+    });
+    _animateFloatingActionButton();
   }
 
-  Future<void> _showEditQuantityDialog(
-      String itemName, int currentQuantity) async {
-    final TextEditingController controller =
-        TextEditingController(text: currentQuantity.toString());
-    return showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Edit Quantity'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: InputDecoration(labelText: 'Quantity'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              int newQuantity =
-                  int.tryParse(controller.text) ?? currentQuantity;
-              _updateQuantity(itemName, newQuantity);
-              Navigator.of(context).pop();
-            },
-            child: Text('Update'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSendRequestButton() {
-    return Center(
-      child: ElevatedButton(
-        onPressed: _selectedItems.isEmpty
-            ? null
-            : () => _showRequestDetailsDialog(context),
-        child: Text('Send Request'),
-        style: ElevatedButton.styleFrom(
-          padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-        ),
-      ),
-    );
+  void _animateFloatingActionButton() {
+    if (_selectedItems.isNotEmpty) {
+      _animationController.forward();
+    } else {
+      _animationController.reverse();
+    }
   }
 
   Future<void> _showRequestDetailsDialog(BuildContext context) async {
     return showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Enter Request Details'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                value: _selectedLocation,
-                decoration: InputDecoration(
-                  labelText: 'Delivery Location',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.location_on),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Enter Request Details'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Consumer<LocationProvider>(
+                  builder: (context, locationProvider, _) {
+                    if (locationProvider.isLoading) {
+                      return CircularProgressIndicator();
+                    }
+                    if (locationProvider.locations.isEmpty) {
+                      return Text('No locations available.');
+                    }
+                    return DropdownButtonFormField<String>(
+                      value: _selectedLocation.isNotEmpty
+                          ? _selectedLocation
+                          : null,
+                      decoration: InputDecoration(
+                        labelText: 'Delivery Location',
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(15)),
+                        prefixIcon: Icon(Icons.location_on),
+                      ),
+                      items: locationProvider.locations.map((location) {
+                        return DropdownMenuItem(
+                            value: location, child: Text(location));
+                      }).toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => _selectedLocation = value);
+                        }
+                      },
+                      hint: Text('Select a location'),
+                    );
+                  },
                 ),
-                items: _locations
-                    .map((location) => DropdownMenuItem(
-                        value: location, child: Text(location)))
-                    .toList(),
-                onChanged: (value) =>
-                    setState(() => _selectedLocation = value!),
-              ),
-              SizedBox(height: 16),
-              _buildPickerNameField(),
-              SizedBox(height: 16),
-              _buildPickerContactField(),
-              SizedBox(height: 16),
-              TextField(
-                controller: _noteController,
-                decoration: InputDecoration(
-                  labelText: 'Optional Note',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.note),
+                SizedBox(height: 16),
+                TextField(
+                  controller: _pickerNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Picker Name',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15)),
+                    prefixIcon: Icon(Icons.person),
+                  ),
                 ),
-                maxLines: 3,
-              ),
-            ],
+                SizedBox(height: 16),
+                TextField(
+                  controller: _pickerContactController,
+                  decoration: InputDecoration(
+                    labelText: 'Picker Contact Number',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15)),
+                    prefixIcon: Icon(Icons.phone),
+                    suffixIcon: IconButton(
+                      icon: Icon(Icons.contacts),
+                      onPressed: _pickContact,
+                    ),
+                  ),
+                  keyboardType: TextInputType.phone,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  maxLength: 10,
+                ),
+                SizedBox(height: 16),
+                TextField(
+                  controller: _noteController,
+                  decoration: InputDecoration(
+                    labelText: 'Optional Note',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15)),
+                    prefixIcon: Icon(Icons.note),
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => _submitRequest(context),
+              child: Text('Submit'),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade700),
+            ),
+          ],
         ),
-        actions: [
+      ),
+    );
+  }
+
+  Future<void> _pickContact() async {
+    var status = await Permission.contacts.status;
+    if (status.isGranted) {
+      try {
+        Contact? contact = await ContactsService.openDeviceContactPicker();
+        if (contact != null) {
+          String phoneNumber = contact.phones?.first.value ?? '';
+          phoneNumber = phoneNumber.replaceAll(RegExp(r'[^\d]'), '');
+          if (phoneNumber.length > 10) {
+            phoneNumber = phoneNumber.substring(phoneNumber.length - 10);
+          }
+          setState(() {
+            _pickerNameController.text = contact.displayName ?? '';
+            _pickerContactController.text = phoneNumber;
+          });
+        }
+      } catch (e) {
+        print('Error picking contact: $e');
+      }
+    } else {
+      showPermissionDeniedDialog(context);
+    }
+  }
+
+  void showPermissionDeniedDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: Text('Contact Permission Required'),
+        content: Text(
+            'This app needs access to contacts to function properly. Please grant permission in the app settings.'),
+        actions: <Widget>[
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
             child: Text('Cancel'),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-          ElevatedButton(
-            onPressed: () => _submitRequest(context),
-            child: Text('Submit'),
+          TextButton(
+            child: Text('Open Settings'),
+            onPressed: () {
+              Navigator.of(context).pop();
+              AppSettings.openAppSettings();
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPickerNameField() {
-    return TextField(
-      controller: _pickerNameController,
-      decoration: InputDecoration(
-        labelText: 'Picker Name (at least 2 letters)',
-        border: OutlineInputBorder(),
-        prefixIcon: Icon(Icons.person),
-      ),
-    );
-  }
-
-  Widget _buildPickerContactField() {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _pickerContactController,
-            decoration: InputDecoration(
-              labelText: 'Picker Contact Number (10 digits)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.phone),
-            ),
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-          ),
-        ),
-        IconButton(
-          icon: Icon(Icons.contact_phone),
-          onPressed: _pickContact,
-        ),
-      ],
-    );
-  }
-
-  Future<void> _pickContact() async {
-    try {
-      final PermissionStatus permissionStatus = await _getContactPermission();
-      if (permissionStatus == PermissionStatus.granted) {
-        final Contact? contact =
-            await ContactsService.openDeviceContactPicker();
-        if (contact != null) {
-          final phone = contact.phones
-                  ?.firstWhere((p) => p.value != null,
-                      orElse: () => Item(value: ''))
-                  .value ??
-              '';
-          setState(() {
-            _pickerNameController.text = contact.displayName ?? '';
-            _pickerContactController.text = phone.replaceAll(RegExp(r'\D'), '');
-          });
-        }
-      } else {
-        _handleInvalidPermissions(permissionStatus);
-      }
-    } catch (e) {
-      print('Error picking contact: $e');
-    }
-  }
-
-  Future<PermissionStatus> _getContactPermission() async {
-    PermissionStatus permission = await Permission.contacts.status;
-    if (permission != PermissionStatus.granted &&
-        permission != PermissionStatus.permanentlyDenied) {
-      return await Permission.contacts.request();
-    }
-    return permission;
-  }
-
-  void _handleInvalidPermissions(PermissionStatus permissionStatus) {
-    if (permissionStatus == PermissionStatus.denied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Access to contact data denied')),
-      );
-    } else if (permissionStatus == PermissionStatus.permanentlyDenied) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Contact data not available on device')),
-      );
-    }
-  }
-
-  bool _validateInputs() {
-    String pickerName = _pickerNameController.text.trim();
-    if (pickerName.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Picker name must be at least 2 letters.')),
-      );
-      return false;
-    }
-
-    if (_pickerContactController.text.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Mobile number must be 10 digits.')),
-      );
-      return false;
-    }
-
-    if (_selectedLocation.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please select a delivery location.')),
-      );
-      return false;
-    }
-
-    return true;
-  }
-
   Future<void> _submitRequest(BuildContext context) async {
-    if (!_validateInputs()) return;
+    if (_pickerNameController.text.isEmpty ||
+        _pickerContactController.text.isEmpty ||
+        _pickerContactController.text.length != 10 ||
+        _selectedLocation.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text('Please fill all the required fields with valid data.')),
+      );
+      return;
+    }
 
-    List<Map<String, dynamic>> requestItems =
-        _selectedItems.entries.map((entry) {
-      final item = Provider.of<InventoryProvider>(context, listen: false)
-          .items
-          .firstWhere((item) => item['name'] == entry.key);
-      return {
-        'id': item['id'],
-        'name': entry.key,
-        'quantity': entry.value,
-        'unit': item['unit'] ?? 'pcs',
-      };
-    }).toList();
+    setState(() => _isLoading = true);
 
-    final currentUserEmail =
-        Provider.of<AuthProvider>(context, listen: false).currentUserEmail!;
-    final inventoryProvider =
-        Provider.of<InventoryProvider>(context, listen: false);
-    final requestProvider =
-        Provider.of<RequestProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final currentUserEmail = authProvider.currentUserEmail;
+    final currentUserId = authProvider.user?.uid;
+    final currentUserRole = authProvider.role;
+
+    if (currentUserEmail == null ||
+        currentUserId == null ||
+        currentUserRole == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content:
+                Text('User information not available. Please log in again.')),
+      );
+      setState(() => _isLoading = false);
+      return;
+    }
 
     try {
-      await requestProvider.addRequest(
-        requestItems,
+      final requestProvider =
+          Provider.of<RequestProvider>(context, listen: false);
+      final inventoryProvider =
+          Provider.of<InventoryProvider>(context, listen: false);
+
+      List<Map<String, dynamic>> items = _selectedItems.entries.map((entry) {
+        final itemData = entry.value;
+        final isPipe = itemData['isPipe'] ?? false;
+
+        if (isPipe) {
+          double meters = (itemData['meters'] as double?) ?? 0.0;
+          int pcs = (itemData['pcs'] as int?) ?? 0;
+          return {
+            'id': entry.key,
+            'name': itemData['name'],
+            'quantity': pcs,
+            'meters': meters,
+            'isPipe': true,
+            'pipeLength': itemData['pipeLength'] ?? 1.0,
+            'category': itemData['category'] ?? 'Uncategorized',
+            'subcategory': itemData['subcategory'] ?? 'N/A',
+            'unit': 'pcs',
+          };
+        } else {
+          return {
+            'id': entry.key,
+            'name': itemData['name'],
+            'quantity': itemData['quantity'],
+            'unit': itemData['unit'],
+            'isPipe': false,
+            'category': itemData['category'] ?? 'Uncategorized',
+            'subcategory': itemData['subcategory'] ?? 'N/A',
+          };
+        }
+      }).where((item) {
+        if (item['isPipe']) {
+          return (item['quantity'] as int) > 0 ||
+              (item['meters'] as double) > 0;
+        } else {
+          return (item['quantity'] as int) > 0;
+        }
+      }).toList();
+
+      String requestId = await requestProvider.addRequest(
+        items,
         _selectedLocation,
         _pickerNameController.text,
         _pickerContactController.text,
@@ -465,31 +1078,167 @@ class _CreateManagerRequestScreenState
         inventoryProvider,
       );
 
+      // Generate a unique code for the request
+      String uniqueCode = _generateUniqueCode();
+
+      // Prepare the SMS message
+      String smsMessage = '''
+New Request: $requestId
+Code: $uniqueCode
+Location: $_selectedLocation
+Items: ${items.length}
+Picker: ${_pickerNameController.text}
+''';
+
+      await _shareRequestDetails(requestId, items);
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Request added successfully. Some items may be partially fulfilled due to inventory levels.'),
-        ),
+        SnackBar(content: Text('Request created successfully!')),
       );
 
-      setState(() {
-        _selectedItems.clear();
-        _selectedLocation = 'Default Location';
-        _pickerNameController.clear();
-        _pickerContactController.clear();
-        _noteController.clear();
-      });
-
-      Navigator.of(context).pop();
-      Navigator.of(context).pop(); // Close the dialog and the screen
-    } catch (error) {
-      print("Error creating request: $error");
+      Navigator.of(context).pop(); // Close the dialog
+      Navigator.of(context).pop(); // Go back to the previous screen
+    } catch (e) {
+      print("Error creating request or sending notifications: $e");
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error creating request: $error'),
-        ),
+        SnackBar(content: Text('Error creating request: $e')),
       );
+    } finally {
+      setState(() => _isLoading = false);
     }
+  }
+
+  String _generateUniqueCode() {
+    return (100000 + Random().nextInt(900000)).toString();
+  }
+
+  Future<void> _shareRequestDetails(
+      String requestId, List<Map<String, dynamic>> items) async {
+    final itemDetails = items.map((item) {
+      if (item['isPipe'] as bool) {
+        return '${item['name']} - ${item['quantity']} pcs, ${item['meters']} meters';
+      } else {
+        return '${item['name']} - ${item['quantity']} ${item['unit']}';
+      }
+    }).join('\n');
+
+    final shareContent = '''
+Request ID: $requestId
+Location: $_selectedLocation
+Picker: ${_pickerNameController.text}
+
+Items:
+$itemDetails
+
+Note: ${_noteController.text.isEmpty ? 'N/A' : _noteController.text}
+''';
+
+    await Share.share(shareContent);
+  }
+
+  void _showEditQuantityDialog(String itemId, int currentQuantity) {
+    final TextEditingController quantityController =
+        TextEditingController(text: currentQuantity.toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit Quantity'),
+        content: TextField(
+          controller: quantityController,
+          decoration: InputDecoration(
+            labelText: 'Quantity',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              int newQuantity = int.tryParse(quantityController.text) ?? 0;
+              _updateQuantity(itemId, newQuantity, _selectedItems[itemId]!);
+              Navigator.of(context).pop();
+            },
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditPipeDialog(String itemId, Map<String, dynamic> itemData) {
+    final TextEditingController pcsController = TextEditingController(
+        text: (_selectedItems[itemId]?['pcs'] ?? 0).toString());
+    final TextEditingController metersController = TextEditingController(
+        text: (_selectedItems[itemId]?['meters'] ?? 0.0).toString());
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Edit Pipe Details'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: pcsController,
+              decoration: InputDecoration(
+                labelText: 'Pieces',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            SizedBox(height: 10),
+            TextField(
+              controller: metersController,
+              decoration: InputDecoration(
+                labelText: 'Meters',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.numberWithOptions(decimal: true),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              int pcs = int.tryParse(pcsController.text) ?? 0;
+              double meters = double.tryParse(metersController.text) ?? 0.0;
+              _updatePipeDetails(itemId, pcs, meters, itemData);
+              Navigator.of(context).pop();
+            },
+            child: Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updatePipeDetails(
+      String itemId, int pcs, double meters, Map<String, dynamic> itemData) {
+    setState(() {
+      _selectedItems[itemId] = {
+        ..._selectedItems[itemId] ?? {},
+        'pcs': pcs,
+        'meters': meters,
+        'isPipe': true,
+        'name': itemData['name'],
+        'unit': 'pcs',
+        'pipeLength': itemData['pipeLength'],
+        'category': itemData['category'],
+        'subcategory': itemData['subcategory'],
+      };
+    });
+    _animateFloatingActionButton();
   }
 
   @override
@@ -498,1036 +1247,7 @@ class _CreateManagerRequestScreenState
     _pickerNameController.dispose();
     _pickerContactController.dispose();
     _noteController.dispose();
+    _animationController.dispose();
     super.dispose();
   }
 }
-// import 'package:flutter/material.dart';
-// import 'package:flutter/services.dart';
-// import 'package:provider/provider.dart';
-// import 'package:contacts_service/contacts_service.dart';
-// import 'package:permission_handler/permission_handler.dart';
-// import '../../providers/request_provider.dart';
-// import '../../providers/inventory_provider.dart';
-// import '../../providers/auth_provider.dart';
-
-// class CreateManagerRequestScreen extends StatefulWidget {
-//   @override
-//   _CreateManagerRequestScreenState createState() =>
-//       _CreateManagerRequestScreenState();
-// }
-
-// class _CreateManagerRequestScreenState
-//     extends State<CreateManagerRequestScreen> {
-//   final Map<String, int> _selectedItems = {};
-//   final TextEditingController _searchController = TextEditingController();
-//   final TextEditingController _pickerNameController = TextEditingController();
-//   final TextEditingController _pickerContactController =
-//       TextEditingController();
-//   final TextEditingController _noteController = TextEditingController();
-
-//   String _selectedLocation = 'Default Location';
-//   String _selectedCategory = 'All';
-//   List<String> _locations = ['Default Location', 'Location 1', 'Location 2'];
-//   bool _isLoading = false;
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     _fetchInventoryItems();
-//   }
-
-//   Future<void> _fetchInventoryItems() async {
-//     setState(() => _isLoading = true);
-//     try {
-//       await Provider.of<InventoryProvider>(context, listen: false).fetchItems();
-//     } catch (e) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Error fetching inventory items: $e')),
-//       );
-//     } finally {
-//       setState(() => _isLoading = false);
-//     }
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(title: Text('Create New Request')),
-//       body: _isLoading
-//           ? Center(child: CircularProgressIndicator())
-//           : SingleChildScrollView(
-//               child: Padding(
-//                 padding: const EdgeInsets.all(16.0),
-//                 child: Column(
-//                   crossAxisAlignment: CrossAxisAlignment.start,
-//                   children: [
-//                     _buildSearchBar(),
-//                     SizedBox(height: 16),
-//                     Text('Categories',
-//                         style: Theme.of(context).textTheme.titleLarge),
-//                     SizedBox(height: 8),
-//                     _buildCategoryList(),
-//                     SizedBox(height: 16),
-//                     Text('Inventory List',
-//                         style: Theme.of(context).textTheme.titleLarge),
-//                     SizedBox(height: 8),
-//                     _buildInventoryList(),
-//                     SizedBox(height: 16),
-//                     Text('Selected Items',
-//                         style: Theme.of(context).textTheme.titleLarge),
-//                     SizedBox(height: 8),
-//                     _buildSelectedItemsList(),
-//                     SizedBox(height: 16),
-//                     _buildSendRequestButton(),
-//                   ],
-//                 ),
-//               ),
-//             ),
-//     );
-//   }
-
-//   Widget _buildSearchBar() {
-//     return TextField(
-//       controller: _searchController,
-//       decoration: InputDecoration(
-//         labelText: 'Search',
-//         border: OutlineInputBorder(),
-//         prefixIcon: Icon(Icons.search),
-//       ),
-//       onChanged: (_) => setState(() {}),
-//     );
-//   }
-
-//   Widget _buildCategoryList() {
-//     return Consumer<InventoryProvider>(
-//       builder: (context, inventoryProvider, _) {
-//         Set<String> categories = {
-//           'All',
-//           ...inventoryProvider.items.map((item) => item['category'] as String)
-//         };
-//         return SizedBox(
-//           height: 50,
-//           child: ListView.builder(
-//             scrollDirection: Axis.horizontal,
-//             itemCount: categories.length,
-//             itemBuilder: (context, index) {
-//               String category = categories.elementAt(index);
-//               return Padding(
-//                 padding: const EdgeInsets.symmetric(horizontal: 4),
-//                 child: ChoiceChip(
-//                   label: Text(category),
-//                   selected: _selectedCategory == category,
-//                   onSelected: (_) =>
-//                       setState(() => _selectedCategory = category),
-//                 ),
-//               );
-//             },
-//           ),
-//         );
-//       },
-//     );
-//   }
-
-//   Widget _buildInventoryList() {
-//     return Consumer<InventoryProvider>(
-//       builder: (context, inventoryProvider, _) {
-//         List<Map<String, dynamic>> filteredItems = inventoryProvider.items
-//             .where((item) =>
-//                 (_selectedCategory == 'All' ||
-//                     item['category'] == _selectedCategory) &&
-//                 item['name']
-//                     .toLowerCase()
-//                     .contains(_searchController.text.toLowerCase()))
-//             .toList();
-
-//         return SizedBox(
-//           height: 200,
-//           child: ListView.builder(
-//             itemCount: filteredItems.length,
-//             itemBuilder: (context, index) {
-//               Map<String, dynamic> item = filteredItems[index];
-//               return Card(
-//                 child: ListTile(
-//                   leading: CircleAvatar(child: Icon(Icons.inventory)),
-//                   title: Text(item['name'],
-//                       style: TextStyle(fontWeight: FontWeight.bold)),
-//                   trailing: _buildQuantityControls(item),
-//                 ),
-//               );
-//             },
-//           ),
-//         );
-//       },
-//     );
-//   }
-
-//   Widget _buildQuantityControls(Map<String, dynamic> item) {
-//     int quantity = _selectedItems[item['name']] ?? 0;
-//     return Row(
-//       mainAxisSize: MainAxisSize.min,
-//       children: [
-//         IconButton(
-//           icon: Icon(Icons.remove),
-//           onPressed: quantity > 0
-//               ? () => _updateQuantity(item['name'], quantity - 1)
-//               : null,
-//         ),
-//         Text('$quantity ${item['unit']}'),
-//         IconButton(
-//           icon: Icon(Icons.add),
-//           onPressed: () => _updateQuantity(item['name'], quantity + 1),
-//         ),
-//       ],
-//     );
-//   }
-
-//   void _updateQuantity(String itemName, int newQuantity) {
-//     setState(() {
-//       if (newQuantity > 0) {
-//         _selectedItems[itemName] = newQuantity;
-//       } else {
-//         _selectedItems.remove(itemName);
-//       }
-//     });
-//   }
-
-//   Widget _buildSelectedItemsList() {
-//     return SizedBox(
-//       height: 200,
-//       child: ListView.builder(
-//         itemCount: _selectedItems.length,
-//         itemBuilder: (context, index) {
-//           String itemName = _selectedItems.keys.elementAt(index);
-//           int quantity = _selectedItems[itemName]!;
-//           return Card(
-//             child: ListTile(
-//               leading: CircleAvatar(child: Icon(Icons.inventory)),
-//               title: Text('$itemName x $quantity'),
-//               trailing: IconButton(
-//                 icon: Icon(Icons.delete, color: Colors.red),
-//                 onPressed: () => _updateQuantity(itemName, 0),
-//               ),
-//             ),
-//           );
-//         },
-//       ),
-//     );
-//   }
-
-//   Widget _buildSendRequestButton() {
-//     return Center(
-//       child: ElevatedButton(
-//         onPressed: _selectedItems.isEmpty
-//             ? null
-//             : () => _showRequestDetailsDialog(context),
-//         child: Text('Send Request'),
-//         style: ElevatedButton.styleFrom(
-//           padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-//         ),
-//       ),
-//     );
-//   }
-
-//   Future<void> _showRequestDetailsDialog(BuildContext context) async {
-//     return showDialog(
-//       context: context,
-//       builder: (context) => AlertDialog(
-//         title: Text('Enter Request Details'),
-//         content: SingleChildScrollView(
-//           child: Column(
-//             mainAxisSize: MainAxisSize.min,
-//             children: [
-//               DropdownButtonFormField<String>(
-//                 value: _selectedLocation,
-//                 decoration: InputDecoration(
-//                   labelText: 'Delivery Location',
-//                   border: OutlineInputBorder(),
-//                   prefixIcon: Icon(Icons.location_on),
-//                 ),
-//                 items: _locations
-//                     .map((location) => DropdownMenuItem(
-//                         value: location, child: Text(location)))
-//                     .toList(),
-//                 onChanged: (value) =>
-//                     setState(() => _selectedLocation = value!),
-//               ),
-//               SizedBox(height: 16),
-//               _buildPickerNameField(),
-//               SizedBox(height: 16),
-//               _buildPickerContactField(),
-//               SizedBox(height: 16),
-//               TextField(
-//                 controller: _noteController,
-//                 decoration: InputDecoration(
-//                   labelText: 'Optional Note',
-//                   border: OutlineInputBorder(),
-//                   prefixIcon: Icon(Icons.note),
-//                 ),
-//                 maxLines: 3,
-//               ),
-//             ],
-//           ),
-//         ),
-//         actions: [
-//           TextButton(
-//             onPressed: () => Navigator.of(context).pop(),
-//             child: Text('Cancel'),
-//           ),
-//           ElevatedButton(
-//             onPressed: () => _submitRequest(context),
-//             child: Text('Submit'),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-
-//   Widget _buildPickerNameField() {
-//     return TextField(
-//       controller: _pickerNameController,
-//       decoration: InputDecoration(
-//         labelText: 'Picker Name (at least 2 letters)',
-//         border: OutlineInputBorder(),
-//         prefixIcon: Icon(Icons.person),
-//       ),
-//     );
-//   }
-
-//   Widget _buildPickerContactField() {
-//     return Row(
-//       children: [
-//         Expanded(
-//           child: TextField(
-//             controller: _pickerContactController,
-//             decoration: InputDecoration(
-//               labelText: 'Picker Contact Number (10 digits)',
-//               border: OutlineInputBorder(),
-//               prefixIcon: Icon(Icons.phone),
-//             ),
-//             keyboardType: TextInputType.number,
-//             inputFormatters: [
-//               FilteringTextInputFormatter.digitsOnly,
-//               LengthLimitingTextInputFormatter(10),
-//             ],
-//           ),
-//         ),
-//         IconButton(
-//           icon: Icon(Icons.contact_phone),
-//           onPressed: _pickContact,
-//         ),
-//       ],
-//     );
-//   }
-
-//   Future<void> _pickContact() async {
-//     try {
-//       final PermissionStatus permissionStatus = await _getContactPermission();
-//       if (permissionStatus == PermissionStatus.granted) {
-//         final Contact? contact =
-//             await ContactsService.openDeviceContactPicker();
-//         if (contact != null) {
-//           final phone = contact.phones
-//                   ?.firstWhere((p) => p.value != null,
-//                       orElse: () => Item(value: ''))
-//                   .value ??
-//               '';
-//           setState(() {
-//             _pickerNameController.text = contact.displayName ?? '';
-//             _pickerContactController.text = phone.replaceAll(RegExp(r'\D'), '');
-//           });
-//         }
-//       } else {
-//         _handleInvalidPermissions(permissionStatus);
-//       }
-//     } catch (e) {
-//       print('Error picking contact: $e');
-//     }
-//   }
-
-//   Future<PermissionStatus> _getContactPermission() async {
-//     PermissionStatus permission = await Permission.contacts.status;
-//     if (permission != PermissionStatus.granted &&
-//         permission != PermissionStatus.permanentlyDenied) {
-//       return await Permission.contacts.request();
-//     }
-//     return permission;
-//   }
-
-//   void _handleInvalidPermissions(PermissionStatus permissionStatus) {
-//     if (permissionStatus == PermissionStatus.denied) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Access to contact data denied')),
-//       );
-//     } else if (permissionStatus == PermissionStatus.permanentlyDenied) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Contact data not available on device')),
-//       );
-//     }
-//   }
-
-//   bool _validateInputs() {
-//     String pickerName = _pickerNameController.text.trim();
-//     if (pickerName.length < 2) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Picker name must be at least 2 letters.')),
-//       );
-//       return false;
-//     }
-
-//     if (_pickerContactController.text.length != 10) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Mobile number must be 10 digits.')),
-//       );
-//       return false;
-//     }
-
-//     if (_selectedLocation.isEmpty) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Please select a delivery location.')),
-//       );
-//       return false;
-//     }
-
-//     return true;
-//   }
-
-//   Future<void> _submitRequest(BuildContext context) async {
-//     if (!_validateInputs()) return;
-
-//     List<Map<String, dynamic>> requestItems =
-//         _selectedItems.entries.map((entry) {
-//       final item = Provider.of<InventoryProvider>(context, listen: false)
-//           .items
-//           .firstWhere((item) => item['name'] == entry.key);
-//       return {
-//         'id': item['id'],
-//         'name': entry.key,
-//         'quantity': entry.value,
-//         'unit': item['unit'] ?? 'pcs',
-//       };
-//     }).toList();
-
-//     final currentUserEmail =
-//         Provider.of<AuthProvider>(context, listen: false).currentUserEmail!;
-//     final inventoryProvider =
-//         Provider.of<InventoryProvider>(context, listen: false);
-//     final requestProvider =
-//         Provider.of<RequestProvider>(context, listen: false);
-
-//     try {
-//       await requestProvider.addRequest(
-//         requestItems,
-//         _selectedLocation,
-//         _pickerNameController.text,
-//         _pickerContactController.text,
-//         _noteController.text,
-//         currentUserEmail,
-//         inventoryProvider,
-//       );
-
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(
-//           content: Text(
-//               'Request added successfully. Some items may be partially fulfilled due to inventory levels.'),
-//         ),
-//       );
-
-//       setState(() {
-//         _selectedItems.clear();
-//         _selectedLocation = 'Default Location';
-//         _pickerNameController.clear();
-//         _pickerContactController.clear();
-//         _noteController.clear();
-//       });
-
-//       Navigator.of(context).pop();
-//       Navigator.of(context).pop(); // Close the dialog and the screen
-//     } catch (error) {
-//       print("Error creating request: $error");
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(
-//           content: Text('Error creating request: $error'),
-//         ),
-//       );
-//     }
-//   }
-
-//   @override
-//   void dispose() {
-//     _searchController.dispose();
-//     _pickerNameController.dispose();
-//     _pickerContactController.dispose();
-//     _noteController.dispose();
-//     super.dispose();
-//   }
-// }
-
-// // import 'package:contacts_service/contacts_service.dart';
-// import 'package:contacts_service/contacts_service.dart';
-// import 'package:flutter/material.dart';
-// import 'package:flutter/services.dart';
-// import 'package:permission_handler/permission_handler.dart';
-// import 'package:provider/provider.dart';
-// import '../../providers/request_provider.dart';
-// import '../../providers/inventory_provider.dart';
-// import '../../providers/auth_provider.dart';
-
-// class CreateManagerRequestScreen extends StatefulWidget {
-//   @override
-//   _CreateManagerRequestScreenState createState() =>
-//       _CreateManagerRequestScreenState();
-// }
-
-// class _CreateManagerRequestScreenState
-//     extends State<CreateManagerRequestScreen> {
-//   Map<String, int> _selectedItems = {};
-//   String _searchQuery = '';
-//   String _selectedLocation = 'Default Location';
-//   String _selectedCategory = 'All';
-//   List<String> _locations = ['Default Location', 'Location 1', 'Location 2'];
-//   TextEditingController _pickerNameController = TextEditingController();
-//   TextEditingController _pickerContactController = TextEditingController();
-//   TextEditingController _noteController = TextEditingController();
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     WidgetsBinding.instance.addPostFrameCallback((_) {
-//       _fetchInventoryItems();
-//     });
-//   }
-
-//   Future<void> _fetchInventoryItems() async {
-//     try {
-//       await Provider.of<InventoryProvider>(context, listen: false).fetchItems();
-//       print("Inventory items fetched successfully");
-//     } catch (e) {
-//       print("Error fetching inventory items: $e");
-//     }
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       appBar: AppBar(
-//         title: Text('Create New Request'),
-//       ),
-//       body: SingleChildScrollView(
-//         child: Padding(
-//           padding: const EdgeInsets.all(16.0),
-//           child: Column(
-//             crossAxisAlignment: CrossAxisAlignment.start,
-//             children: <Widget>[
-//               _buildSearchBar(),
-//               SizedBox(height: 16),
-//               Text('Categories',
-//                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-//               SizedBox(height: 8),
-//               _buildCategoryList(),
-//               SizedBox(height: 16),
-//               Text('Inventory List',
-//                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-//               SizedBox(height: 8),
-//               _buildInventoryList(),
-//               SizedBox(height: 16),
-//               Text('Selected Items',
-//                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-//               SizedBox(height: 8),
-//               _buildSelectedItemsList(),
-//               SizedBox(height: 16),
-//               _buildSendRequestButton(),
-//               SizedBox(height: 16),
-//             ],
-//           ),
-//         ),
-//       ),
-//     );
-//   }
-
-//   Widget _buildSearchBar() {
-//     return TextField(
-//       decoration: InputDecoration(
-//         labelText: 'Search',
-//         border: OutlineInputBorder(),
-//         prefixIcon: Icon(Icons.search),
-//       ),
-//       onChanged: (value) {
-//         setState(() {
-//           _searchQuery = value;
-//         });
-//       },
-//     );
-//   }
-
-//   Widget _buildCategoryList() {
-//     return Consumer<InventoryProvider>(
-//       builder: (context, inventoryProvider, child) {
-//         List<String> categories = inventoryProvider.items
-//             .map((item) => item['category'] as String)
-//             .toSet()
-//             .toList();
-//         categories.insert(0, 'All');
-
-//         return Container(
-//           height: 50,
-//           child: ListView.builder(
-//             scrollDirection: Axis.horizontal,
-//             itemCount: categories.length,
-//             itemBuilder: (context, index) {
-//               String category = categories[index];
-//               return GestureDetector(
-//                 onTap: () {
-//                   setState(() {
-//                     _selectedCategory = category;
-//                   });
-//                 },
-//                 child: Container(
-//                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-//                   margin: EdgeInsets.symmetric(horizontal: 8),
-//                   decoration: BoxDecoration(
-//                     color: _selectedCategory == category
-//                         ? Colors.blue
-//                         : Colors.grey,
-//                     borderRadius: BorderRadius.circular(8),
-//                   ),
-//                   child: Center(
-//                     child: Text(
-//                       category,
-//                       style: TextStyle(
-//                           color: Colors.white, fontWeight: FontWeight.bold),
-//                     ),
-//                   ),
-//                 ),
-//               );
-//             },
-//           ),
-//         );
-//       },
-//     );
-//   }
-
-//   Widget _buildInventoryList() {
-//     return Consumer<InventoryProvider>(
-//       builder: (context, inventoryProvider, child) {
-//         if (inventoryProvider.items.isEmpty) {
-//           return Center(child: CircularProgressIndicator());
-//         }
-
-//         List<Map<String, dynamic>> filteredItems = inventoryProvider
-//             .getItemsByCategory(_selectedCategory)
-//             .where((item) =>
-//                 item['name'].toLowerCase().contains(_searchQuery.toLowerCase()))
-//             .toList();
-
-//         return Container(
-//           height: 200,
-//           child: ListView.builder(
-//             itemCount: filteredItems.length,
-//             itemBuilder: (context, index) {
-//               Map<String, dynamic> item = filteredItems[index];
-//               return Card(
-//                 elevation: 2,
-//                 margin: EdgeInsets.symmetric(vertical: 8),
-//                 child: ListTile(
-//                   contentPadding: EdgeInsets.all(16),
-//                   leading: CircleAvatar(child: Icon(Icons.inventory)),
-//                   title: Text(item['name'],
-//                       style: TextStyle(fontWeight: FontWeight.bold)),
-//                   trailing: _buildQuantityControls(item),
-//                 ),
-//               );
-//             },
-//           ),
-//         );
-//       },
-//     );
-//   }
-
-//   Widget _buildQuantityControls(Map<String, dynamic> item) {
-//     return _selectedItems.containsKey(item['name'])
-//         ? Row(
-//             mainAxisSize: MainAxisSize.min,
-//             children: [
-//               IconButton(
-//                 icon: Icon(Icons.remove),
-//                 onPressed: () {
-//                   setState(() {
-//                     if (_selectedItems[item['name']] == 1) {
-//                       _selectedItems.remove(item['name']);
-//                     } else {
-//                       _selectedItems[item['name']] =
-//                           _selectedItems[item['name']]! - 1;
-//                     }
-//                   });
-//                 },
-//               ),
-//               Text('${_selectedItems[item['name']]} ${item['unit']}'),
-//               IconButton(
-//                 icon: Icon(Icons.add),
-//                 onPressed: () {
-//                   setState(() {
-//                     _selectedItems[item['name']] =
-//                         _selectedItems[item['name']]! + 1;
-//                   });
-//                 },
-//               ),
-//             ],
-//           )
-//         : IconButton(
-//             icon: Icon(Icons.add),
-//             onPressed: () {
-//               setState(() {
-//                 _selectedItems[item['name']] = 1;
-//               });
-//             },
-//           );
-//   }
-
-//   Widget _buildSelectedItemsList() {
-//     return Container(
-//       height: 200,
-//       child: ListView.builder(
-//         itemCount: _selectedItems.length,
-//         itemBuilder: (context, index) {
-//           String itemName = _selectedItems.keys.elementAt(index);
-//           int quantity = _selectedItems[itemName]!;
-//           return Consumer<InventoryProvider>(
-//             builder: (context, inventoryProvider, child) {
-//               Map<String, dynamic> item = inventoryProvider.items
-//                   .firstWhere((element) => element['name'] == itemName);
-//               return Card(
-//                 elevation: 2,
-//                 margin: EdgeInsets.symmetric(vertical: 8),
-//                 child: ListTile(
-//                   contentPadding: EdgeInsets.all(16),
-//                   leading: CircleAvatar(child: Icon(Icons.inventory)),
-//                   title: Text('$itemName x$quantity ${item['unit']}',
-//                       style: TextStyle(fontWeight: FontWeight.bold)),
-//                   trailing: _buildSelectedQuantityControls(itemName),
-//                 ),
-//               );
-//             },
-//           );
-//         },
-//       ),
-//     );
-//   }
-
-//   Widget _buildSelectedQuantityControls(String itemName) {
-//     return Row(
-//       mainAxisSize: MainAxisSize.min,
-//       children: [
-//         IconButton(
-//           icon: Icon(Icons.remove),
-//           onPressed: () {
-//             setState(() {
-//               if (_selectedItems[itemName] == 1) {
-//                 _selectedItems.remove(itemName);
-//               } else {
-//                 _selectedItems[itemName] = _selectedItems[itemName]! - 1;
-//               }
-//             });
-//           },
-//         ),
-//         Container(
-//           width: 40,
-//           child: TextField(
-//             keyboardType: TextInputType.number,
-//             onChanged: (value) {
-//               setState(() {
-//                 _selectedItems[itemName] = int.tryParse(value) ?? 1;
-//               });
-//             },
-//             decoration: InputDecoration(
-//               contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-//               isDense: true,
-//               border: OutlineInputBorder(),
-//             ),
-//             controller: TextEditingController()
-//               ..text = _selectedItems[itemName].toString(),
-//           ),
-//         ),
-//         IconButton(
-//           icon: Icon(Icons.add),
-//           onPressed: () {
-//             setState(() {
-//               _selectedItems[itemName] = _selectedItems[itemName]! + 1;
-//             });
-//           },
-//         ),
-//         IconButton(
-//           icon: Icon(Icons.remove_circle, color: Colors.red),
-//           onPressed: () {
-//             setState(() {
-//               _selectedItems.remove(itemName);
-//             });
-//           },
-//         ),
-//       ],
-//     );
-//   }
-
-//   Widget _buildSendRequestButton() {
-//     return Center(
-//       child: ElevatedButton(
-//         onPressed: _selectedItems.isEmpty
-//             ? null
-//             : () {
-//                 _showRequestDetailsDialog(context);
-//               },
-//         child: Text('Send Request'),
-//         style: ElevatedButton.styleFrom(
-//           backgroundColor: _selectedItems.isEmpty ? Colors.grey : Colors.blue,
-//           padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-//         ),
-//       ),
-//     );
-//   }
-
-
-
-//   Widget _buildPickerNameField() {
-//     return TextField(
-//       controller: _pickerNameController,
-//       decoration: InputDecoration(
-//         labelText: 'Picker Name (at least 2 letters)',
-//         border: OutlineInputBorder(),
-//         prefixIcon: Icon(Icons.person),
-//       ),
-//       onChanged: (value) {
-//         setState(() {});
-//       },
-//     );
-//   }
-
-//   Widget _buildPickerContactField() {
-//     return Row(
-//       children: [
-//         Expanded(
-//           child: TextField(
-//             controller: _pickerContactController,
-//             decoration: InputDecoration(
-//               labelText: 'Picker Contact Number (10 digits)',
-//               border: OutlineInputBorder(),
-//               prefixIcon: Icon(Icons.phone),
-//             ),
-//             keyboardType: TextInputType.number,
-//             inputFormatters: [
-//               FilteringTextInputFormatter.digitsOnly,
-//               LengthLimitingTextInputFormatter(10),
-//             ],
-//           ),
-//         ),
-//         IconButton(
-//           icon: Icon(Icons.contact_phone),
-//           onPressed: _pickContact,
-//         ),
-//       ],
-//     );
-//   }
-
-//   Future<void> _pickContact() async {
-//     final PermissionStatus permissionStatus = await _getContactPermission();
-//     if (permissionStatus == PermissionStatus.granted) {
-//       final Contact? contact = await ContactsService.openDeviceContactPicker();
-//       if (contact != null) {
-//         final phone = contact.phones?.firstWhere((phone) => phone.value != null,
-//             orElse: () => Item(label: 'mobile', value: ''));
-//         setState(() {
-//           _pickerNameController.text = contact.displayName ?? '';
-//           _pickerContactController.text =
-//               phone?.value?.replaceAll(RegExp(r'\D'), '') ?? '';
-//         });
-//       }
-//     } else {
-//       _handleInvalidPermissions(permissionStatus);
-//     }
-//   }
-
-//   Future<PermissionStatus> _getContactPermission() async {
-//     PermissionStatus permission = await Permission.contacts.status;
-//     if (permission != PermissionStatus.granted &&
-//         permission != PermissionStatus.permanentlyDenied) {
-//       PermissionStatus permissionStatus = await Permission.contacts.request();
-//       return permissionStatus;
-//     } else {
-//       return permission;
-//     }
-//   }
-
-//   void _handleInvalidPermissions(PermissionStatus permissionStatus) {
-//     if (permissionStatus == PermissionStatus.denied) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Access to contact data denied')),
-//       );
-//     } else if (permissionStatus == PermissionStatus.permanentlyDenied) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Contact data not available on device')),
-//       );
-//     }
-//   }
-
-//   bool _validateInputs() {
-//     // Validate picker name
-//     String pickerName = _pickerNameController.text.trim();
-//     if (pickerName.length < 2) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Picker name must be at least 2 letters.')),
-//       );
-//       return false;
-//     }
-
-//     // Validate mobile number
-//     if (_pickerContactController.text.length != 10) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Mobile number must be 10 digits.')),
-//       );
-//       return false;
-//     }
-
-//     if (_selectedLocation.isEmpty) {
-//       ScaffoldMessenger.of(context).showSnackBar(
-//         SnackBar(content: Text('Please select a delivery location.')),
-//       );
-//       return false;
-//     }
-
-//     return true;
-//   }
-
-//   void _showRequestDetailsDialog(BuildContext context) {
-//     showDialog(
-//       context: context,
-//       builder: (context) {
-//         return AlertDialog(
-//           title: Text('Enter Request Details'),
-//           content: SingleChildScrollView(
-//             child: Column(
-//               children: [
-//                 DropdownButtonFormField<String>(
-//                   value: _selectedLocation,
-//                   decoration: InputDecoration(
-//                     labelText: 'Delivery Location',
-//                     border: OutlineInputBorder(),
-//                     prefixIcon: Icon(Icons.location_on),
-//                   ),
-//                   items: _locations.map((location) {
-//                     return DropdownMenuItem(
-//                       value: location,
-//                       child: Text(location),
-//                     );
-//                   }).toList(),
-//                   onChanged: (value) {
-//                     setState(() {
-//                       _selectedLocation = value!;
-//                     });
-//                   },
-//                 ),
-//                 SizedBox(height: 16),
-//                 _buildPickerNameField(),
-//                 SizedBox(height: 16),
-//                 _buildPickerContactField(),
-//                 SizedBox(height: 16),
-//                 TextField(
-//                   controller: _noteController,
-//                   decoration: InputDecoration(
-//                     labelText: 'Optional Note',
-//                     border: OutlineInputBorder(),
-//                     prefixIcon: Icon(Icons.note),
-//                   ),
-//                   maxLines: 3,
-//                 ),
-//               ],
-//             ),
-//           ),
-
-
-//           actions: [
-//             TextButton(
-//               onPressed: () {
-//                 Navigator.of(context).pop();
-//               },
-//               child: Text('Cancel'),
-//             ),
-//             ElevatedButton(
-//               onPressed: () async {
-//                 print("Submit button pressed");
-//                 if (!_validateInputs()) {
-//                   print("Validation failed");
-//                   return;
-//                 }
-//                 print("Validation passed");
-
-//                 List<Map<String, dynamic>> requestItems =
-//                     _selectedItems.entries.map((entry) {
-//                   final item =
-//                       Provider.of<InventoryProvider>(context, listen: false)
-//                           .items
-//                           .firstWhere((item) => item['name'] == entry.key);
-//                   return {
-//                     'id': item['id'],
-//                     'name': entry.key,
-//                     'quantity': entry.value,
-//                     'unit': item['unit'] ?? 'pcs',
-//                   };
-//                 }).toList();
-
-//                 String location = _selectedLocation;
-//                 String pickerName = _pickerNameController.text;
-//                 String pickerContact = _pickerContactController.text;
-//                 String note = _noteController.text;
-//                 final currentUserEmail =
-//                     Provider.of<AuthProvider>(context, listen: false)
-//                         .currentUserEmail!;
-//                 final inventoryProvider =
-//                     Provider.of<InventoryProvider>(context, listen: false);
-//                 final requestProvider =
-//                     Provider.of<RequestProvider>(context, listen: false);
-
-//                 try {
-//                   print("Attempting to add request");
-//                   await requestProvider.addRequest(
-//                     requestItems,
-//                     location,
-//                     pickerName,
-//                     pickerContact,
-//                     note,
-//                     currentUserEmail,
-//                     inventoryProvider,
-//                   );
-
-//                   print("Request added successfully");
-//                   ScaffoldMessenger.of(context).showSnackBar(
-//                     SnackBar(
-//                       content: Text(
-//                           'Request added successfully. Some items may be partially fulfilled due to inventory levels.'),
-//                     ),
-//                   );
-
-//                   setState(() {
-//                     _selectedItems.clear();
-//                     _selectedLocation = 'Default Location';
-//                     _pickerNameController.clear();
-//                     _pickerContactController.clear();
-//                     _noteController.clear();
-//                   });
-
-//                   Navigator.of(context).pop();
-//                   Navigator.of(context).pop();
-//                 } catch (error) {
-//                   print("Error creating request: $error");
-//                   ScaffoldMessenger.of(context).showSnackBar(
-//                     SnackBar(
-//                       content: Text('Error creating request: $error'),
-//                     ),
-//                   );
-//                 }
-//               },
-//               child: Text('Submit'),
-//             ),
-//           ],
-//         );
-//       },
-//     );
-//   }
-// }
